@@ -27,14 +27,23 @@ defmodule Electric.Postgres.Dialect.SQLite do
     integer: "INTEGER",
     float: "REAL",
     text: "TEXT",
-    blob: "BLOB"
+    blob: "BLOB",
+    date: "DATE",
+    time: "TIME",
+    timetz: "TIMETZ",
+    timestamp: "TIMESTAMP",
+    timestamptz: "TIMESTAMPTZ"
   }
 
   @int_types Postgres.integer_types()
   @float_types Postgres.float_types()
   @text_types Postgres.text_types()
   @binary_types Postgres.binary_types()
-  @datetime_types Postgres.datetime_types()
+  @date_types Postgres.date_types()
+  @time_types Postgres.time_types()
+  @timetz_types Postgres.timetz_types()
+  @timestamp_types Postgres.timestamp_types()
+  @timestamptz_types Postgres.timestamptz_types()
   @json_types Postgres.json_types()
   @bool_types Postgres.bool_types()
   @uuid_types Postgres.uuid_types()
@@ -375,8 +384,24 @@ defmodule Electric.Postgres.Dialect.SQLite do
     @types[:blob] <> sized(size)
   end
 
-  def do_map_type(t, size) when t in @datetime_types do
-    @types[:text] <> sized(size)
+  def do_map_type(t, size) when t in @date_types do
+    @types[:date] <> sized(size)
+  end
+
+  def do_map_type(t, size) when t in @time_types do
+    @types[:time] <> sized(size)
+  end
+
+  def do_map_type(t, size) when t in @timetz_types do
+    @types[:timetz] <> sized(size)
+  end
+
+  def do_map_type(t, size) when t in @timestamp_types do
+    @types[:timestamp] <> sized(size)
+  end
+
+  def do_map_type(t, size) when t in @timestamptz_types do
+    @types[:timestamptz] <> sized(size)
   end
 
   def do_map_type(t, size) when t in @json_types do

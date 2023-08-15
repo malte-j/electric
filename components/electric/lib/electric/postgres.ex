@@ -51,11 +51,14 @@ defmodule Electric.Postgres do
   @text_types ["character varying", "varchar", "character", "char", "text", "bpchar"]
   @binary_types ["bytea"]
   @date_types ["date"]
-  @time_types ["timetz", "time", "time without time zone", "time with time zone"]
+  @time_types ["time", "time without time zone"]
+  @timetz_types ["timetz", "time with time zone"]
   @timestamp_types [
-    "timestamptz",
     "timestamp",
-    "timestamp without time zone",
+    "timestamp without time zone"
+  ]
+  @timestamptz_types [
+    "timestamptz",
     "timestamp with time zone"
   ]
   @bool_types ["boolean", "bool"]
@@ -70,8 +73,15 @@ defmodule Electric.Postgres do
   def float_types, do: @float_types
   def text_types, do: @text_types
   def binary_types, do: @binary_types
-  def datetime_types, do: @date_types ++ @time_types ++ @timestamp_types
+  def date_types, do: @date_types
+  def time_types, do: @time_types
+  def timetz_types, do: @timetz_types
   def timestamp_types, do: @timestamp_types
+  def timestamptz_types, do: @timestamptz_types
+
+  def datetime_types,
+    do: @date_types ++ @time_types ++ @timetz_types ++ @timestamp_types ++ @timestamptz_types
+
   def json_types, do: @json_types
   def bool_types, do: @bool_types
   def uuid_types, do: @uuid_types

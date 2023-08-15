@@ -75,7 +75,11 @@ defmodule Electric.Postgres.Dialect.SqliteTest do
       # not sure this is right
       {map_array_type.(Postgres.binary_types()), "TEXT_JSON"},
       # DATE/TIME/DATETIME
-      {map_type.(Postgres.datetime_types()), "TEXT"},
+      {map_type.(Postgres.date_types()), "DATE"},
+      {map_type.(Postgres.time_types()), "TIME"},
+      {map_type.(Postgres.timetz_types()), "TIMETZ"},
+      {map_type.(Postgres.timestamp_types()), "TIMESTAMP"},
+      {map_type.(Postgres.timestamptz_types()), "TIMESTAMPTZ"},
       {map_array_type.(Postgres.datetime_types()), "TEXT_JSON"},
       # BOOL
       {map_type.(Postgres.bool_types()), "INTEGER"},
@@ -117,7 +121,7 @@ defmodule Electric.Postgres.Dialect.SqliteTest do
                "i1" INTEGER,
                "i2" TEXT_JSON,
                "i3" BLOB,
-               "i4" TEXT,
+               "i4" TIMESTAMP,
                "i5" TEXT_JSON,
                "i6" INTEGER,
                "i7" REAL,
@@ -149,7 +153,7 @@ defmodule Electric.Postgres.Dialect.SqliteTest do
                  ~s["i1" INTEGER,],
                  ~s["i2" TEXT_JSON,],
                  ~s["i3" BLOB,],
-                 ~s["i4" TEXT,],
+                 ~s["i4" TIMESTAMP,],
                  ~s["i5" TEXT_JSON,],
                  ~s["i6" INTEGER,],
                  ~s["i7" REAL,],
@@ -334,7 +338,7 @@ defmodule Electric.Postgres.Dialect.SqliteTest do
                "c6" TEXT_JSON DEFAULT '{"this":"thing"}',
                "c7" BLOB DEFAULT x'2F',
                "c8" INTEGER DEFAULT (CAST('13' AS INTEGER)),
-               "c9" TEXT DEFAULT current_timestamp,
+               "c9" TIMESTAMPTZ DEFAULT current_timestamp,
                CONSTRAINT "i_pkey" PRIMARY KEY ("id")
              ) WITHOUT ROWID;
              """
