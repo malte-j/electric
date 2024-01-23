@@ -7000,7 +7000,7 @@
   end,
   defmodule Electric.Satellite.SatOpMigrate.Column do
     @moduledoc false
-    defstruct name: "", sqlite_type: "", pg_type: nil
+    defstruct name: "", sqlite_type: "", pg_type: nil, is_nullable: false
 
     (
       (
@@ -7015,7 +7015,11 @@
 
         @spec encode!(struct) :: iodata | no_return
         def encode!(msg) do
-          [] |> encode_name(msg) |> encode_sqlite_type(msg) |> encode_pg_type(msg)
+          []
+          |> encode_name(msg)
+          |> encode_sqlite_type(msg)
+          |> encode_pg_type(msg)
+          |> encode_is_nullable(msg)
         end
       )
 
@@ -7057,6 +7061,19 @@
           rescue
             ArgumentError ->
               reraise Protox.EncodingError.new(:pg_type, "invalid field value"), __STACKTRACE__
+          end
+        end,
+        defp encode_is_nullable(acc, msg) do
+          try do
+            if msg.is_nullable == false do
+              acc
+            else
+              [acc, " ", Protox.Encode.encode_bool(msg.is_nullable)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:is_nullable, "invalid field value"),
+                      __STACKTRACE__
           end
         end
       ]
@@ -7118,6 +7135,10 @@
                      )
                  ], rest}
 
+              {4, _, bytes} ->
+                {value, rest} = Protox.Decode.parse_bool(bytes)
+                {[is_nullable: value], rest}
+
               {tag, wire_type, rest} ->
                 {_, rest} = Protox.Decode.parse_unknown(tag, wire_type, rest)
                 {[], rest}
@@ -7178,7 +7199,8 @@
           1 => {:name, {:scalar, ""}, :string},
           2 => {:sqlite_type, {:scalar, ""}, :string},
           3 =>
-            {:pg_type, {:scalar, nil}, {:message, Electric.Satellite.SatOpMigrate.PgColumnType}}
+            {:pg_type, {:scalar, nil}, {:message, Electric.Satellite.SatOpMigrate.PgColumnType}},
+          4 => {:is_nullable, {:scalar, false}, :bool}
         }
       end
 
@@ -7188,6 +7210,7 @@
             }
       def defs_by_name() do
         %{
+          is_nullable: {4, {:scalar, false}, :bool},
           name: {1, {:scalar, ""}, :string},
           pg_type: {3, {:scalar, nil}, {:message, Electric.Satellite.SatOpMigrate.PgColumnType}},
           sqlite_type: {2, {:scalar, ""}, :string}
@@ -7225,6 +7248,15 @@
             name: :pg_type,
             tag: 3,
             type: {:message, Electric.Satellite.SatOpMigrate.PgColumnType}
+          },
+          %{
+            __struct__: Protox.Field,
+            json_name: "isNullable",
+            kind: {:scalar, false},
+            label: :optional,
+            name: :is_nullable,
+            tag: 4,
+            type: :bool
           }
         ]
       end
@@ -7340,6 +7372,46 @@
              }}
           end
         ),
+        (
+          def field_def(:is_nullable) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "isNullable",
+               kind: {:scalar, false},
+               label: :optional,
+               name: :is_nullable,
+               tag: 4,
+               type: :bool
+             }}
+          end
+
+          def field_def("isNullable") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "isNullable",
+               kind: {:scalar, false},
+               label: :optional,
+               name: :is_nullable,
+               tag: 4,
+               type: :bool
+             }}
+          end
+
+          def field_def("is_nullable") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "isNullable",
+               kind: {:scalar, false},
+               label: :optional,
+               name: :is_nullable,
+               tag: 4,
+               type: :bool
+             }}
+          end
+        ),
         def field_def(_) do
           {:error, :no_such_field}
         end
@@ -7372,6 +7444,9 @@
       end,
       def default(:pg_type) do
         {:ok, nil}
+      end,
+      def default(:is_nullable) do
+        {:ok, false}
       end,
       def default(_) do
         {:error, :no_such_field}
