@@ -43,10 +43,7 @@ import {
 } from './common'
 import { DEFAULT_LOG_POS, numberToBytes, base64 } from '../../src/util/common'
 
-import {
-  ClientShapeDefinition,
-  SubscriptionData,
-} from '../../src/satellite/shapes/types'
+import { Shape, SubscriptionData } from '../../src/satellite/shapes/types'
 import { mergeEntries } from '../../src/satellite/merge'
 import { MockSubscriptionsManager } from '../../src/satellite/shapes/manager'
 
@@ -1329,8 +1326,8 @@ test('apply shape data and persist subscription', async (t) => {
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef: ClientShapeDefinition = {
-    selects: [{ tablename }],
+  const shapeDef: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
@@ -1382,8 +1379,8 @@ test('(regression) shape subscription succeeds even if subscription data is deli
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef: ClientShapeDefinition = {
-    selects: [{ tablename }],
+  const shapeDef: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
@@ -1414,8 +1411,8 @@ test('multiple subscriptions for the same shape are deduplicated', async (t) => 
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef: ClientShapeDefinition = {
-    selects: [{ tablename }],
+  const shapeDef: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
@@ -1456,8 +1453,8 @@ test('applied shape data will be acted upon correctly', async (t) => {
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef: ClientShapeDefinition = {
-    selects: [{ tablename }],
+  const shapeDef: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
@@ -1508,8 +1505,8 @@ test('a subscription that failed to apply because of FK constraint triggers GC',
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef1: ClientShapeDefinition = {
-    selects: [{ tablename }],
+  const shapeDef1: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
@@ -1542,11 +1539,11 @@ test('a second successful subscription', async (t) => {
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef1: ClientShapeDefinition = {
-    selects: [{ tablename: 'parent' }],
+  const shapeDef1: Shape = {
+    tablename: 'parent',
   }
-  const shapeDef2: ClientShapeDefinition = {
-    selects: [{ tablename: tablename }],
+  const shapeDef2: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
@@ -1588,11 +1585,11 @@ test('a single subscribe with multiple tables with FKs', async (t) => {
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef1: ClientShapeDefinition = {
-    selects: [{ tablename: 'child' }],
+  const shapeDef1: Shape = {
+    tablename: 'child',
   }
-  const shapeDef2: ClientShapeDefinition = {
-    selects: [{ tablename: 'parent' }],
+  const shapeDef2: Shape = {
+    tablename: 'parent',
   }
 
   satellite!.relations = relations
@@ -1642,11 +1639,11 @@ test.serial('a shape delivery that triggers garbage collection', async (t) => {
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef1: ClientShapeDefinition = {
-    selects: [{ tablename: 'parent' }],
+  const shapeDef1: Shape = {
+    tablename: 'parent',
   }
-  const shapeDef2: ClientShapeDefinition = {
-    selects: [{ tablename: 'another' }],
+  const shapeDef2: Shape = {
+    tablename: 'another',
   }
 
   satellite!.relations = relations
@@ -1693,12 +1690,12 @@ test('a subscription request failure does not clear the manager state', async (t
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef1: ClientShapeDefinition = {
-    selects: [{ tablename: tablename }],
+  const shapeDef1: Shape = {
+    tablename: tablename,
   }
 
-  const shapeDef2: ClientShapeDefinition = {
-    selects: [{ tablename: 'failure' }],
+  const shapeDef2: Shape = {
+    tablename: 'failure',
   }
 
   satellite!.relations = relations
@@ -1765,7 +1762,7 @@ test("Garbage collecting the subscription doesn't generate oplog entries", async
   t.is((await satellite._getEntries(0)).length, 0)
 
   satellite._garbageCollectShapeHandler([
-    { uuid: '', definition: { selects: [{ tablename: 'parent' }] } },
+    { uuid: '', definition: { tablename: 'parent' } },
   ])
 
   await satellite._performSnapshot()
@@ -1788,8 +1785,8 @@ test('snapshots: generated oplog entries have the correct tags', async (t) => {
   const conn = await satellite.start(authState)
   await conn.connectionPromise
 
-  const shapeDef: ClientShapeDefinition = {
-    selects: [{ tablename }],
+  const shapeDef: Shape = {
+    tablename,
   }
 
   satellite!.relations = relations
