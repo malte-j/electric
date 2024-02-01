@@ -205,7 +205,7 @@ export type RelationColumn = {
   name: string
   type: string
   isNullable: boolean
-  primaryKey?: number | false
+  primaryKey?: number
 }
 
 export type RelationsCache = { [k: string]: Relation }

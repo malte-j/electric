@@ -197,19 +197,19 @@ const addColumnRelation = {
       name: 'value',
       type: 'TEXT',
       isNullable: true,
-      primaryKey: false,
+      primaryKey: undefined,
     },
     {
       name: 'other',
       type: 'INTEGER',
       isNullable: true,
-      primaryKey: false,
+      primaryKey: undefined,
     },
     {
       name: 'baz',
       type: 'TEXT',
       isNullable: true,
-      primaryKey: false,
+      primaryKey: undefined,
     },
   ],
 } satisfies Relation
@@ -229,13 +229,13 @@ const newTableRelation = {
       name: 'foo',
       type: 'INTEGER',
       isNullable: true,
-      primaryKey: false,
+      primaryKey: undefined,
     },
     {
       name: 'bar',
       type: 'TEXT',
       isNullable: true,
-      primaryKey: false,
+      primaryKey: undefined,
     },
   ],
 } satisfies Relation
