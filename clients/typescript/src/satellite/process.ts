@@ -24,6 +24,7 @@ import {
 } from '../util/common'
 import { QualifiedTablename } from '../util/tablename'
 import {
+  AdditionalData,
   ConnectivityState,
   DataChange,
   DbName,
@@ -331,6 +332,7 @@ export class SatelliteProcess implements Satellite {
     this.client.subscribeToError(this._handleClientError.bind(this))
     this.client.subscribeToRelations(this._updateRelations.bind(this))
     this.client.subscribeToTransactions(this._applyTransaction.bind(this))
+    this.client.subscribeToAdditionalData(this._applyAdditionalData.bind(this))
     this.client.subscribeToOutboundStarted(this._throttledSnapshot.bind(this))
 
     this.client.subscribeToSubscriptionEvents(
@@ -524,7 +526,9 @@ export class SatelliteProcess implements Satellite {
 
     // For each table, do a batched insert
     for (const [table, { columns, records }] of groupedChanges) {
-      const sqlBase = `INSERT INTO ${table} (${columns.join(', ')}) VALUES `
+      const sqlBase = `INSERT OR IGNORE INTO ${table} (${columns.join(
+        ', '
+      )}) VALUES `
 
       stmts.push(
         ...prepareInsertBatchedStatements(
@@ -1046,6 +1050,7 @@ export class SatelliteProcess implements Satellite {
         }
 
         switch (entryChanges.optype) {
+          case OPTYPES.gone:
           case OPTYPES.delete:
             stmts.push(_applyDeleteOperation(entryChanges, tablenameStr))
             stmts.push(this._deleteShadowTagsStatement(shadowEntry))
@@ -1271,6 +1276,13 @@ export class SatelliteProcess implements Satellite {
     }
 
     await this._notifyChanges(opLogEntries)
+  }
+
+  async _applyAdditionalData(data: AdditionalData) {
+    // Server sends additional data on move-ins and tries to send only data
+    // the client has never seen from its perspective. Because of this, we're writing this
+    // data directly, like subscription data
+    this._applySubscriptionData(data.changes, this._lsn!)
   }
 
   private async maybeGarbageCollect(

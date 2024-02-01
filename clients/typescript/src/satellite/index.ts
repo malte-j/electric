@@ -16,6 +16,7 @@ import {
   TransactionCallback,
   RelationCallback,
   OutboundStartedCallback,
+  AdditionalDataCallback,
 } from '../util/types'
 import {
   Shape,
@@ -89,6 +90,8 @@ export interface Client {
   unsubscribeToRelations(callback: RelationCallback): void
   subscribeToTransactions(callback: TransactionCallback): void
   unsubscribeToTransactions(callback: TransactionCallback): void
+  subscribeToAdditionalData(callback: AdditionalDataCallback): void
+  unsubscribeToAdditionalData(callback: AdditionalDataCallback): void
   enqueueTransaction(transaction: DataTransaction): void
   getLastSentLsn(): LSN
   subscribeToOutboundStarted(callback: OutboundStartedCallback): void

@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { schema, Electric, ColorType as Color } from './generated/client'
 export { JsonNull } from './generated/client'
 import { globalRegistry } from 'electric-sql/satellite'
+import { Shape } from 'electric-sql/dist/satellite/shapes/types'
 
 setLogLevel('DEBUG')
 
@@ -64,6 +65,11 @@ export const syncTable = async (electric: Electric, table: string) => {
     const { synced } = await satellite.subscribe([{tablename: table}])
     return await synced
   }
+}
+
+export const lowLevelSubscribe = async (electric: Electric, shape: Shape) => {
+    const { synced } = await electric.satellite.subscribe([shape])
+    return await synced
 }
 
 export const get_tables = (electric: Electric) => {
@@ -199,7 +205,7 @@ export const get_int = (electric: Electric, id: string) => {
   })
 }
 
-export const write_int = (electric: Electric, id: string, i2: number, i4: number, i8: number | BigInt) => {
+export const write_int = (electric: Electric, id: string, i2: number, i4: number, i8: number | bigint) => {
   return electric.db.ints.create({
     data: { id, i2, i4, i8 }
   })
@@ -309,11 +315,11 @@ export const insert_item = async (electric: Electric, keys: [string]) => {
   })
 }
 
-export const insert_extended_item = async (electric: Electric, values: { string: string }) => {
+export const insert_extended_item = async (electric: Electric, values: Record<string, string>) => {
   await insert_extended_into(electric, "items", values)
 }
 
-export const insert_extended_into = async (electric: Electric, table: string, values: { string: string }) => {
+export const insert_extended_into = async (electric: Electric, table: string, values: Record<string, string>) => {
   if (!values['id']) {
     values['id'] = uuidv4()
   }
