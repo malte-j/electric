@@ -77,6 +77,10 @@ const startSatellite = async (
 const test = anyTest as TestFn<ContextType>
 test.beforeEach(makeContext)
 test.afterEach.always(cleanAndStopSatellite)
+const qualifiedParentTableName = new QualifiedTablename(
+  'main',
+  'parent'
+).toString()
 
 test('setup starts a satellite process', async (t) => {
   t.true(t.context.satellite instanceof SatelliteProcess)
@@ -348,7 +352,7 @@ test('snapshot of INSERT after DELETE', async (t) => {
     },
     relations
   )
-  const [_, keyChanges] = merged['main.parent']['{"id":1}']
+  const [_, keyChanges] = merged[qualifiedParentTableName]['{"id":1}']
   const resultingValue = keyChanges.changes.value.value
   t.is(resultingValue, null)
 })
@@ -374,7 +378,11 @@ test('snapshot of INSERT with bigint', async (t) => {
     },
     relations
   )
-  const [_, keyChanges] = merged['main.bigIntTable']['{"value":"1"}']
+  const qualifiedTableName = new QualifiedTablename(
+    'main',
+    'bigIntTable'
+  ).toString()
+  const [_, keyChanges] = merged[qualifiedTableName]['{"value":"1"}']
   const resultingValue = keyChanges.changes.value.value
   t.is(resultingValue, 1n)
 })
@@ -413,7 +421,7 @@ test('take snapshot and merge local wins', async (t) => {
     [incomingEntry],
     relations
   )
-  const item = merged['main.parent']['{"id":1}']
+  const item = merged[qualifiedParentTableName]['{"id":1}']
 
   t.deepEqual(item, {
     namespace: 'main',
@@ -473,7 +481,7 @@ test('take snapshot and merge incoming wins', async (t) => {
     [incomingEntry],
     relations
   )
-  const item = merged['main.parent']['{"id":1}']
+  const item = merged[qualifiedParentTableName]['{"id":1}']
 
   t.deepEqual(item, {
     namespace: 'main',
@@ -818,7 +826,7 @@ test('INSERT wins over DELETE and restored deleted values', async (t) => {
   ]
 
   const merged = mergeEntries(clientId, local, 'remote', incoming, relations)
-  const item = merged['main.parent']['{"id":1}']
+  const item = merged[qualifiedParentTableName]['{"id":1}']
 
   t.deepEqual(item, {
     namespace: 'main',
@@ -894,7 +902,7 @@ test('concurrent updates take all changed values', async (t) => {
   ]
 
   const merged = mergeEntries(clientId, local, 'remote', incoming, relations)
-  const item = merged['main.parent']['{"id":1}']
+  const item = merged[qualifiedParentTableName]['{"id":1}']
 
   // The incoming entry modified the value of the `value` column to `'remote'`
   // The local entry concurrently modified the value of the `other` column to 1.
@@ -946,7 +954,7 @@ test('merge incoming with empty local', async (t) => {
 
   const local: OplogEntry[] = []
   const merged = mergeEntries(clientId, local, 'remote', incoming, relations)
-  const item = merged['main.parent']['{"id":1}']
+  const item = merged[qualifiedParentTableName]['{"id":1}']
 
   t.deepEqual(item, {
     namespace: 'main',
@@ -1473,9 +1481,10 @@ test('apply shape data and persist subscription', async (t) => {
   })
 
   // wait for process to apply shape data
+  const qualifiedTableName = `"${namespace}"."${tablename}"`
   try {
     const row = await adapter.query({
-      sql: `SELECT id FROM ${qualified.toString()}`,
+      sql: `SELECT id FROM ${qualifiedTableName}`,
     })
     t.is(row.length, 1)
 
@@ -1572,7 +1581,7 @@ test('applied shape data will be acted upon correctly', async (t) => {
 
   const namespace = 'main'
   const tablename = 'parent'
-  const qualified = new QualifiedTablename(namespace, tablename).toString()
+  const qualified = `"${namespace}"."${tablename}"`
 
   // relations must be present at subscription delivery
   client.setRelations(relations)
@@ -1624,7 +1633,6 @@ test('a subscription that failed to apply because of FK constraint triggers GC',
 
   const tablename = 'child'
   const namespace = 'main'
-  const qualified = new QualifiedTablename(namespace, tablename).toString()
 
   // relations must be present at subscription delivery
   client.setRelations(relations)
@@ -1643,7 +1651,7 @@ test('a subscription that failed to apply because of FK constraint triggers GC',
 
   try {
     const row = await adapter.query({
-      sql: `SELECT id FROM ${qualified}`,
+      sql: `SELECT id FROM "${namespace}"."${tablename}"`,
     })
     t.is(row.length, 0)
   } catch (e) {
@@ -1656,8 +1664,8 @@ test('a second successful subscription', async (t) => {
     t.context
   await runMigrations()
 
+  const namespace = 'main'
   const tablename = 'child'
-  const qualified = new QualifiedTablename('main', tablename).toString()
 
   // relations must be present at subscription delivery
   client.setRelations(relations)
@@ -1681,7 +1689,7 @@ test('a second successful subscription', async (t) => {
 
   try {
     const row = await adapter.query({
-      sql: `SELECT id FROM ${qualified}`,
+      sql: `SELECT id FROM "${namespace}"."${tablename}"`,
     })
     t.is(row.length, 1)
 
@@ -1702,8 +1710,6 @@ test('a single subscribe with multiple tables with FKs', async (t) => {
   const { client, satellite, adapter, runMigrations, authState, token } =
     t.context
   await runMigrations()
-
-  const qualifiedChild = new QualifiedTablename('main', 'child').toString()
 
   // relations must be present at subscription delivery
   client.setRelations(relations)
@@ -1732,7 +1738,7 @@ test('a single subscribe with multiple tables with FKs', async (t) => {
         setTimeout(async () => {
           try {
             const row = await adapter.query({
-              sql: `SELECT id FROM ${qualifiedChild}`,
+              sql: `SELECT id FROM "main"."child"`,
             })
             t.is(row.length, 1)
 
@@ -1756,8 +1762,8 @@ test.serial('a shape delivery that triggers garbage collection', async (t) => {
     t.context
   await runMigrations()
 
+  const namespace = 'main'
   const tablename = 'parent'
-  const qualified = new QualifiedTablename('main', tablename).toString()
 
   // relations must be present at subscription delivery
   client.setRelations(relations)
@@ -1785,7 +1791,7 @@ test.serial('a shape delivery that triggers garbage collection', async (t) => {
   } catch (expected: any) {
     try {
       const row = await adapter.query({
-        sql: `SELECT id FROM ${qualified}`,
+        sql: `SELECT id FROM "${namespace}"."${tablename}"`,
       })
       t.is(row.length, 0)
 
@@ -1810,8 +1816,8 @@ test('a subscription request failure does not clear the manager state', async (t
   await runMigrations()
 
   // relations must be present at subscription delivery
+  const namespace = 'main'
   const tablename = 'parent'
-  const qualified = new QualifiedTablename('main', tablename).toString()
   client.setRelations(relations)
   client.setRelationData(tablename, parentRecord)
 
@@ -1832,7 +1838,7 @@ test('a subscription request failure does not clear the manager state', async (t
 
   try {
     const row = await adapter.query({
-      sql: `SELECT id FROM ${qualified}`,
+      sql: `SELECT id FROM "${namespace}"."${tablename}"`,
     })
     t.is(row.length, 1)
   } catch (e) {
@@ -1934,7 +1940,7 @@ test('snapshots: generated oplog entries have the correct tags', async (t) => {
 
   const namespace = 'main'
   const tablename = 'parent'
-  const qualified = new QualifiedTablename(namespace, tablename).toString()
+  const qualified = `"${namespace}"."${tablename}"`
 
   // relations must be present at subscription delivery
   client.setRelations(relations)
