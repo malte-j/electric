@@ -1,0 +1,63 @@
+CREATE OR REPLACE FUNCTION electric.install_function__generate_tombstone_entry(schema_name TEXT, table_name TEXT, primary_key_list TEXT[], non_pk_column_list TEXT[])
+    RETURNS TEXT
+    LANGUAGE PLPGSQL AS $outer_function$
+DECLARE
+    function_name TEXT := 'generate_tombstone_entry___' || schema_name || '__' || table_name;
+    shadow_table_name TEXT := 'shadow__' || schema_name || '__' || table_name;
+    tombstone_table_name TEXT := 'tombstone__' || schema_name || '__' || table_name;
+    primary_key_where_clause TEXT;
+    insertion_identifiers TEXT;
+    values_from_old TEXT;
+    on_conflict_assignment_block TEXT;
+BEGIN
+    -- pk1 = OLD.pk1 AND pk2 = OLD.pk2 ...
+    primary_key_where_clause := electric.format_every_and_join(primary_key_list, '%1$I = OLD.%1$I', ' AND ');
+
+    -- pk1, pk2, col1, col2 ...
+    insertion_identifiers := electric.format_every_and_join(primary_key_list || non_pk_column_list, '%I');
+
+    -- pk1, pk2, col1, col2 ...
+    values_from_old := electric.format_every_and_join(primary_key_list || non_pk_column_list, 'OLD.%I');
+
+    -- col1 = OLD.col1, col2 = OLD.col2 ...
+    on_conflict_assignment_block := electric.format_every_and_join(non_pk_column_list, '        %1$I = OLD.%1$I');
+
+    IF array_length(non_pk_column_list, 1) > 0 THEN
+        on_conflict_assignment_block := E'DO UPDATE SET\n' || on_conflict_assignment_block;
+    ELSE
+        on_conflict_assignment_block := 'DO NOTHING'; -- Not much to really do for pk-only tables
+    END IF;
+
+    -- The `%n$I` placeholders use n-th argument for formatting.
+    -- Generally, 1 is a function name, 2 is a shadow table name, 3 is a tombstone table name
+    EXECUTE format($injected$
+        CREATE OR REPLACE FUNCTION electric.%1$I()
+        RETURNS TRIGGER
+        LANGUAGE PLPGSQL SECURITY DEFINER AS
+        $function$
+        DECLARE
+            shadow_row electric.%2$I%%ROWTYPE;
+        BEGIN
+            RAISE DEBUG 'Trigger %% executed by operation %% at depth %% (tx %%)', TG_NAME, TG_OP, pg_trigger_depth(), pg_current_xact_id();
+            SELECT * INTO shadow_row FROM electric.%2$I WHERE %4$s;
+
+            -- USES COLUMN LIST
+            INSERT INTO electric.%3$I (%5$s)
+                VALUES (%6$s)
+                ON CONFLICT (%7$s) %8$s;
+
+            RETURN NULL;
+        END;
+        $function$;$injected$,
+    function_name,
+    shadow_table_name,
+    tombstone_table_name,
+    primary_key_where_clause,
+    insertion_identifiers,
+    values_from_old,
+    electric.format_every_and_join(primary_key_list, '%I'),
+    on_conflict_assignment_block);
+
+    RETURN function_name;
+END;
+$outer_function$;

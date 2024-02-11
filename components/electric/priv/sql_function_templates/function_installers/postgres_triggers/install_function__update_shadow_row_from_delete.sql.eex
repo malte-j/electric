@@ -1,0 +1,49 @@
+CREATE OR REPLACE FUNCTION electric.install_function__update_shadow_row_from_delete(schema_name TEXT, table_name TEXT, primary_key_list TEXT[], non_pk_column_list TEXT[])
+    RETURNS TEXT
+    LANGUAGE PLPGSQL AS $outer_function$
+DECLARE
+    function_name TEXT := 'update_shadow_row_from_delete___' || schema_name || '__' || table_name;
+    shadow_table_name TEXT := 'shadow__' || schema_name || '__' || table_name;
+    tombstone_table_name TEXT := 'tombstone__' || schema_name || '__' || table_name;
+    tag_column_list TEXT[] := electric.format_every(non_pk_column_list, '_tag_%s');
+    primary_key_where_clause TEXT;
+BEGIN
+    primary_key_where_clause := electric.format_every_and_join(primary_key_list, '%1$I = OLD.%1$I', ' AND ');
+    -- The `%n$I` placeholders use n-th argument for formatting.
+    -- Generally, 1 is a function name, 2 is a shadow table name, 3 is a tombstone table name
+    EXECUTE format($injected$
+        CREATE OR REPLACE FUNCTION electric.%1$I()
+            RETURNS TRIGGER
+            LANGUAGE PLPGSQL SECURITY DEFINER AS
+        $function$
+        DECLARE
+            __current_tag electric.tag;
+        BEGIN
+            RAISE DEBUG 'Trigger %% executed by operation %% at depth %% (tx %%)', TG_NAME, TG_OP, pg_trigger_depth(), pg_current_xact_id();
+            RAISE DEBUG '  Given OLD %%', to_json(OLD);
+            __current_tag := (CURRENT_TIMESTAMP(3), NULL);
+
+            -- USES COLUMN LIST
+            UPDATE electric.%2$I
+                SET _last_modified = pg_current_xact_id()::text::bigint,
+                    _tag = __current_tag,
+                    _is_a_delete_operation = true,
+                    _resolved = false
+                WHERE %4$s
+                RETURNING GREATEST(%5$s) INTO __current_tag;
+
+            PERFORM set_config('electric.current_transaction_max_tag', __current_tag::text, true);
+
+            RETURN OLD;
+        END;
+        $function$;$injected$,
+    function_name,
+    shadow_table_name,
+    tombstone_table_name,
+    primary_key_where_clause,
+    electric.append_string_unless_empty('_tag', electric.format_every_and_join(tag_column_list, '%I'))
+    );
+
+    RETURN function_name;
+END;
+$outer_function$;

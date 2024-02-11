@@ -1,0 +1,47 @@
+CREATE OR REPLACE FUNCTION electric.install_function__shadow_insert_to_upsert(schema_name TEXT, table_name TEXT, primary_key_list TEXT[], non_pk_column_list TEXT[])
+    RETURNS TEXT
+    LANGUAGE PLPGSQL AS $outer_function$
+DECLARE
+    function_name TEXT := 'shadow_insert_to_upsert___' || schema_name || '__' || table_name;
+    shadow_table_name TEXT := 'shadow__' || schema_name || '__' || table_name;
+    tombstone_table_name TEXT := 'tombstone__' || schema_name || '__' || table_name;
+    tag_column_list TEXT[] := electric.format_every(non_pk_column_list, '_tag_%s');
+BEGIN
+    -- The `%n$I` placeholders use n-th argument for formatting.
+    -- Generally, 1 is a function name, 2 is a shadow table name, 3 is a tombstone table name
+    EXECUTE format($injected$
+        CREATE OR REPLACE FUNCTION electric.%1$I()
+            RETURNS TRIGGER
+            LANGUAGE PLPGSQL SECURITY DEFINER AS
+        $function$
+        BEGIN
+            RAISE DEBUG 'Trigger %% executed by operation %% at depth %% (tx %%)', TG_NAME, TG_OP, pg_trigger_depth(), pg_current_xact_id();
+            RAISE DEBUG '  Insert for shadow row %%', to_json(NEW);
+
+            -- USES COLUMN LIST
+            INSERT INTO electric.%2$I (_last_modified, _tag, _tags, %4$s)
+                VALUES (pg_current_xact_id()::text::bigint, NEW._tag, ARRAY[NEW._tag], %5$s)
+                ON CONFLICT (%6$s) DO UPDATE
+                    SET _currently_reordering = NULL,
+                        _last_modified = pg_current_xact_id()::text::bigint,
+                        _tag = NEW._tag,
+                        _is_a_delete_operation = NEW._is_a_delete_operation,
+                        _observed_tags = NEW._observed_tags,
+                        _modified_columns_bit_mask = NEW._modified_columns_bit_mask;
+
+            RETURN NULL;
+        END;
+        $function$;$injected$,
+    function_name,
+    shadow_table_name,
+    tombstone_table_name,
+    electric.format_every_and_join(primary_key_list || tag_column_list, '%I'),
+    electric.append_string_unless_empty(
+        electric.format_every_and_join(primary_key_list, 'NEW.%I'),
+        electric.format_every_and_join(tag_column_list, 'NEW._tag')
+    ),
+    electric.format_every_and_join(primary_key_list, '%I'));
+
+    RETURN function_name;
+END;
+$outer_function$;

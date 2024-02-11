@@ -1,0 +1,58 @@
+CREATE OR REPLACE FUNCTION electric.install_function__reorder_main_op(schema_name TEXT, table_name TEXT, primary_key_list TEXT[], non_pk_column_list TEXT[])
+    RETURNS TEXT
+    LANGUAGE PLPGSQL AS $outer_function$
+DECLARE
+    function_name TEXT := 'reorder_main_op___' || schema_name || '__' || table_name;
+    shadow_table_name TEXT := 'shadow__' || schema_name || '__' || table_name;
+    tombstone_table_name TEXT := 'tombstone__' || schema_name || '__' || table_name;
+    reordered_column_list TEXT[];
+    reordered_column_insert TEXT;
+    insert_values TEXT;
+    reordered_column_update TEXT := '';
+BEGIN
+    reordered_column_list := electric.format_every(non_pk_column_list, '__reordered_%s');
+    reordered_column_insert := electric.format_every_and_join(reordered_column_list, '%I');
+    insert_values := electric.format_every_and_join(primary_key_list || non_pk_column_list, 'NEW.%I');
+
+    -- __reordered_col1 = NEW.col1, ...
+    reordered_column_update := electric.zip_format_every_and_join(reordered_column_list, non_pk_column_list, '%I = NEW.%I');
+
+    -- The `%n$I` placeholders use n-th argument for formatting.
+    -- Generally, 1 is a function name, 2 is a shadow table name, 3 is a tombstone table name
+    EXECUTE format($injected$
+        CREATE OR REPLACE FUNCTION electric.%1$I()
+            RETURNS TRIGGER
+            LANGUAGE PLPGSQL SECURITY DEFINER AS
+        $function$
+        DECLARE
+            _shadow_row_tmp electric.%2$I%%ROWTYPE;
+        BEGIN
+            RAISE DEBUG 'Trigger %% executed by operation %% at depth %% (tx %%)', TG_NAME, TG_OP, pg_trigger_depth(), pg_current_xact_id();
+
+            -- We have received an INSERT (or an UPDATE, in development) that comes before the
+            -- shadow table change (this is to reorder locking within the transaction). We need
+            -- to save those values without performing an UPSERT to the main table yet
+
+            -- USES COLUMN LIST
+            INSERT INTO electric.%2$I (_currently_reordering, %5$s)
+                VALUES (true, %6$s)
+                ON CONFLICT (%4$s) DO UPDATE SET
+                    %7$s
+                RETURNING * INTO _shadow_row_tmp;
+
+            RAISE DEBUG '  Resulting in a shadow row state %%', to_json(_shadow_row_tmp);
+            
+            RETURN NULL;
+        END;
+        $function$;$injected$,
+    function_name,
+    shadow_table_name,
+    tombstone_table_name,
+    electric.format_every_and_join(primary_key_list, '%I'),
+    electric.format_every_and_join(primary_key_list || reordered_column_list, '%I'),
+    insert_values,
+    electric.append_string_unless_empty('_currently_reordering = true', reordered_column_update));
+
+    RETURN function_name;
+END;
+$outer_function$;

@@ -1,0 +1,74 @@
+CREATE OR REPLACE FUNCTION electric.install_function__create_shadow_row_from_upsert(schema_name TEXT, table_name TEXT, primary_key_list TEXT[], non_pk_column_list TEXT[])
+    RETURNS TEXT
+    LANGUAGE PLPGSQL AS $outer_function$
+DECLARE
+    function_name TEXT := 'create_shadow_row_from_upsert___' || schema_name || '__' || table_name;
+    shadow_table_name TEXT := 'shadow__' || schema_name || '__' || table_name;
+    tombstone_table_name TEXT := 'tombstone__' || schema_name || '__' || table_name;
+    tag_column_list TEXT[] := electric.format_every(non_pk_column_list, '_tag_%s');
+    insertion_identifiers TEXT;
+    insert_values TEXT;
+    modified_columns_pattern TEXT;
+    modified_columns_bitmask_merger TEXT := '';
+BEGIN
+    insertion_identifiers := electric.format_every_and_join(primary_key_list || tag_column_list, '%I');
+    insert_values := electric.append_string_unless_empty(
+        electric.format_every_and_join(primary_key_list, 'NEW.%I'),
+        electric.format_every_and_join(tag_column_list, '__current_tag')
+    );
+
+    modified_columns_pattern := format('_modified_columns_bit_mask[%%2$s] = (NEW.%%1$I IS DISTINCT FROM OLD.%%1$I) OR COALESCE(%I._modified_columns_bit_mask[%%2$s], false)', shadow_table_name);
+    modified_columns_bitmask_merger := electric.format_every_and_join(non_pk_column_list, modified_columns_pattern, E',\n');
+
+    IF modified_columns_bitmask_merger != '' THEN
+        modified_columns_bitmask_merger := E',\n-- REPEATED BLOCK PER COLUMN\n' || modified_columns_bitmask_merger;
+    END IF;
+
+    -- The `%n$I` placeholders use n-th argument for formatting.
+    -- Generally, 1 is a function name, 2 is a shadow table name, 3 is a tombstone table name
+    EXECUTE format($injected$
+        CREATE OR REPLACE FUNCTION electric.%1$I()
+        RETURNS TRIGGER
+        LANGUAGE PLPGSQL SECURITY DEFINER AS
+        $function$
+        DECLARE
+            __current_tag electric.tag;
+            modified_mask boolean[];
+        BEGIN
+            RAISE DEBUG 'Trigger %% executed by operation %% at depth %% (tx %%)', TG_NAME, TG_OP, pg_trigger_depth(), pg_current_xact_id();
+            RAISE DEBUG '  Given OLD %%', to_json(OLD);
+            RAISE DEBUG '  Given NEW %%', to_json(NEW);
+            __current_tag := (CURRENT_TIMESTAMP(3), NULL);
+
+            -- USES COLUMN LIST
+            INSERT INTO electric.%2$I (_last_modified, _tag, _tags, _resolved,
+                                                    %4$s)
+                VALUES (pg_current_xact_id()::text::bigint, __current_tag, ARRAY[__current_tag], false,
+                        %5$s)
+                ON CONFLICT (%6$s) DO UPDATE
+                    SET _last_modified = pg_current_xact_id()::text::bigint,
+                        _tag = __current_tag,
+                        _is_a_delete_operation = false,
+                        _resolved = false%7$s
+                    -- We're only taking the timestamp here, since we want to override any Satellite writes,
+                    -- and we order `NULL` source as larger than any other, so we're keeping that
+                    RETURNING (GREATEST(%8$s)).timestamp INTO __current_tag.timestamp;
+
+            RAISE DEBUG '  Storing max tag %%', __current_tag;
+            PERFORM set_config('electric.current_transaction_max_tag', __current_tag::text, true);
+
+            RETURN NEW;
+        END;
+        $function$;$injected$,
+    function_name,
+    shadow_table_name,
+    tombstone_table_name,
+    insertion_identifiers,
+    insert_values,
+    electric.format_every_and_join(primary_key_list, '%I'),
+    modified_columns_bitmask_merger,
+    electric.append_string_unless_empty('_tag', electric.format_every_and_join(tag_column_list, '%I')));
+
+    RETURN function_name;
+END;
+$outer_function$;

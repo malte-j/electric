@@ -1,0 +1,79 @@
+CREATE OR REPLACE FUNCTION electric.install_function__resolve_observed_tags(schema_name TEXT, table_name TEXT, primary_key_list TEXT[], non_pk_column_list TEXT[])
+    RETURNS TEXT
+    LANGUAGE PLPGSQL AS $outer_function$
+DECLARE
+    function_name TEXT := 'resolve_observed_tags___' || schema_name || '__' || table_name;
+    shadow_table_name TEXT := 'shadow__' || schema_name || '__' || table_name;
+    tombstone_table_name TEXT := 'tombstone__' || schema_name || '__' || table_name;
+    reordered_insert_function_name TEXT := 'perform_reordered_op___' || schema_name || '__' || table_name;
+    tag_column_list TEXT[] := electric.format_every(non_pk_column_list, '_tag_%s');
+    reordered_column_list TEXT[];
+    tag_resolution_blocks TEXT;
+    reordered_column_save TEXT;
+    reordered_column_reset TEXT;
+BEGIN
+    reordered_column_list := electric.format_every(non_pk_column_list, '__reordered_%s');
+    tag_resolution_blocks := electric.format_every_and_join(
+        tag_column_list,
+        $$
+            IF NEW._is_a_delete_operation OR NEW._tag < OLD.%1$I OR NOT NEW._modified_columns_bit_mask[%2$s] THEN
+                NEW.%1$I = OLD.%1$I;
+            ELSE
+                NEW.%1$I = NEW._tag;
+            END IF;
+        $$, E'\n');
+
+    reordered_column_save := electric.format_every_and_join(reordered_column_list, E'\n            NEW.%1$I = OLD.%1$I;', '');
+
+    reordered_column_reset := electric.format_every_and_join(reordered_column_list, E'\n            NEW.%1$I = null;', '');
+
+    -- The `%n$I` placeholders use n-th argument for formatting.
+    -- Generally, 1 is a function name, 2 is a shadow table name, 3 is a tombstone table name
+    EXECUTE format($injected$
+        CREATE OR REPLACE FUNCTION electric.%1$I()
+            RETURNS TRIGGER
+            LANGUAGE PLPGSQL SECURITY DEFINER AS
+        $function$
+        BEGIN
+            RAISE DEBUG 'Trigger %% executed by operation %% at depth %% (tx %%)', TG_NAME, TG_OP, pg_trigger_depth(), pg_current_xact_id();
+            RAISE DEBUG '  Handling for shadow row %%', to_json(NEW);
+
+            -- Remove observed tags from the tag set
+            SELECT INTO NEW._tags ARRAY(SELECT unnest(OLD._tags) except SELECT unnest(NEW._observed_tags));    
+            NEW._observed_tags = NULL;
+
+            -- Append tags for UPSERT operations
+            IF NEW._is_a_delete_operation IS DISTINCT FROM TRUE THEN
+                NEW._tags = array_append(NEW._tags, NEW._tag);
+            END IF;
+
+            -- If operation is a DELETE, or the column on the OLD row is newer than the current insert, or if UPDATE didn't mark the column as modified
+            --   Then we use `OLD.%%column%%`, since those updates are coming from Electric and `NEW` row values may be incorrect if they weren't modified
+            -- Else, we use the value from the UPDATE
+
+            -- REPEATED BLOCK PER COLUMN
+            %4$s
+
+            -- REPEATED BLOCK PER COLUMN    
+            %5$s
+
+            PERFORM electric.%7$I(NEW);
+
+            -- REPEATED BLOCK PER COLUMN
+            NEW._currently_reordering = null;
+            %6$s
+
+            RETURN NEW;
+        END;
+        $function$;$injected$,
+    function_name,
+    shadow_table_name,
+    tombstone_table_name,
+    tag_resolution_blocks,
+    reordered_column_save,
+    reordered_column_reset,
+    reordered_insert_function_name);
+
+    RETURN function_name;
+END;
+$outer_function$;
