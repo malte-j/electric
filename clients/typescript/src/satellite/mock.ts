@@ -79,7 +79,7 @@ export class MockSatelliteProcess implements Satellite {
     this.notifier = notifier
     this.socketFactory = socketFactory
     this.opts = opts
-    this.connectivityState = "disconnected"
+    this.connectivityState = 'disconnected'
   }
   subscribe(
     _shapeDefinitions: ClientShapeDefinition[]
