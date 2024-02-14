@@ -16,7 +16,8 @@ import {
   StartReplicationResponse,
   StopReplicationResponse,
   OutboundStartedCallback,
-  TransactionCallback, ConnectivityState,
+  TransactionCallback,
+  ConnectivityState,
 } from '../util/types'
 import { ElectricConfig } from '../config/index'
 
