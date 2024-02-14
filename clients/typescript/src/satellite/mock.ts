@@ -16,7 +16,7 @@ import {
   StartReplicationResponse,
   StopReplicationResponse,
   OutboundStartedCallback,
-  TransactionCallback,
+  TransactionCallback, ConnectivityState,
 } from '../util/types'
 import { ElectricConfig } from '../config/index'
 
@@ -63,6 +63,7 @@ export class MockSatelliteProcess implements Satellite {
   notifier: Notifier
   socketFactory: SocketFactory
   opts: SatelliteOpts
+  connectivityState?: ConnectivityState
 
   constructor(
     dbName: DbName,
@@ -78,6 +79,7 @@ export class MockSatelliteProcess implements Satellite {
     this.notifier = notifier
     this.socketFactory = socketFactory
     this.opts = opts
+    this.connectivityState = "disconnected"
   }
   subscribe(
     _shapeDefinitions: ClientShapeDefinition[]
