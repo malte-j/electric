@@ -76,6 +76,7 @@ test('serialize/deserialize row data', async (t) => {
         HKT
       >,
     },
+    [],
     []
   )
 
@@ -209,6 +210,7 @@ test('Null mask uses bits as if they were a list', async (t) => {
         HKT
       >,
     },
+    [],
     []
   )
 
@@ -295,7 +297,8 @@ const setupPG: SetupFn = async (t: ExecutionContext<unknown>) => {
           HKT
         >,
       },
-      []
+      [],
+    []
     )
 
     const satOpRow = serializeRow(
@@ -331,7 +334,7 @@ const setupPG: SetupFn = async (t: ExecutionContext<unknown>) => {
     t.is(Object.keys(inferredRelations).length, 0)
 
     // Empty Db schema
-    const testDbDescription = new DbSchema({}, [])
+    const testDbDescription = new DbSchema({}, [], [])
 
     const newTableRelation: Relation = {
       id: 1,

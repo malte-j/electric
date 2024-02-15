@@ -66,6 +66,7 @@ export const dbDescription = new DbSchema(
     string,
     TableSchema<any, any, any, any, any, any, any, any, any, HKT>
   >,
+  [],
   []
 )
 
