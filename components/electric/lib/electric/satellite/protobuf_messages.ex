@@ -3595,7 +3595,7 @@
   end,
   defmodule Electric.Satellite.SatPerms.Revoke do
     @moduledoc false
-    defstruct table: nil, role: nil, privilege: :DELETE, scope: nil, path: nil
+    defstruct id: "", table: nil, role: nil, privilege: :DELETE, scope: nil, path: nil
 
     (
       (
@@ -3613,6 +3613,7 @@
           []
           |> encode_scope(msg)
           |> encode_path(msg)
+          |> encode_id(msg)
           |> encode_table(msg)
           |> encode_role(msg)
           |> encode_privilege(msg)
@@ -3622,6 +3623,18 @@
       []
 
       [
+        defp encode_id(acc, msg) do
+          try do
+            if msg.id == "" do
+              acc
+            else
+              [acc, "\n", Protox.Encode.encode_string(msg.id)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:id, "invalid field value"), __STACKTRACE__
+          end
+        end,
         defp encode_table(acc, msg) do
           try do
             if msg.table == nil do
@@ -3722,6 +3735,11 @@
             case Protox.Decode.parse_key(bytes) do
               {0, _, _} ->
                 raise %Protox.IllegalTagError{}
+
+              {1, _, bytes} ->
+                {len, bytes} = Protox.Varint.decode(bytes)
+                {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
+                {[id: Protox.Decode.validate_string(delimited)], rest}
 
               {2, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
@@ -3846,6 +3864,7 @@
             }
       def defs() do
         %{
+          1 => {:id, {:scalar, ""}, :string},
           2 => {:table, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Table}},
           3 => {:role, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.RoleName}},
           4 => {:privilege, {:scalar, :DELETE}, {:enum, Electric.Satellite.SatPerms.Privilege}},
@@ -3860,6 +3879,7 @@
             }
       def defs_by_name() do
         %{
+          id: {1, {:scalar, ""}, :string},
           path: {7, {:oneof, :_path}, {:message, Electric.Satellite.SatPerms.Path}},
           privilege: {4, {:scalar, :DELETE}, {:enum, Electric.Satellite.SatPerms.Privilege}},
           role: {3, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.RoleName}},
@@ -3873,6 +3893,15 @@
       @spec fields_defs() :: list(Protox.Field.t())
       def fields_defs() do
         [
+          %{
+            __struct__: Protox.Field,
+            json_name: "id",
+            kind: {:scalar, ""},
+            label: :optional,
+            name: :id,
+            tag: 1,
+            type: :string
+          },
           %{
             __struct__: Protox.Field,
             json_name: "table",
@@ -3923,6 +3952,35 @@
 
       [
         @spec(field_def(atom) :: {:ok, Protox.Field.t()} | {:error, :no_such_field}),
+        (
+          def field_def(:id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :string
+             }}
+          end
+
+          def field_def("id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :string
+             }}
+          end
+
+          []
+        ),
         (
           def field_def(:table) do
             {:ok,
@@ -4092,6 +4150,9 @@
 
     [
       @spec(default(atom) :: {:ok, boolean | integer | String.t() | float} | {:error, atom}),
+      def default(:id) do
+        {:ok, ""}
+      end,
       def default(:table) do
         {:ok, nil}
       end,
@@ -5780,7 +5841,7 @@
   end,
   defmodule Electric.Satellite.SatPerms.Unassign do
     @moduledoc false
-    defstruct table: nil, user_column: nil, role_column: nil, role_name: nil, scope: nil
+    defstruct id: "", table: nil, user_column: nil, role_column: nil, role_name: nil, scope: nil
 
     (
       (
@@ -5800,6 +5861,7 @@
           |> encode_role_column(msg)
           |> encode_role_name(msg)
           |> encode_scope(msg)
+          |> encode_id(msg)
           |> encode_table(msg)
         end
       )
@@ -5807,6 +5869,18 @@
       []
 
       [
+        defp encode_id(acc, msg) do
+          try do
+            if msg.id == "" do
+              acc
+            else
+              [acc, "\n", Protox.Encode.encode_string(msg.id)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:id, "invalid field value"), __STACKTRACE__
+          end
+        end,
         defp encode_table(acc, msg) do
           try do
             if msg.table == nil do
@@ -5901,6 +5975,11 @@
             case Protox.Decode.parse_key(bytes) do
               {0, _, _} ->
                 raise %Protox.IllegalTagError{}
+
+              {1, _, bytes} ->
+                {len, bytes} = Protox.Varint.decode(bytes)
+                {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
+                {[id: Protox.Decode.validate_string(delimited)], rest}
 
               {2, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
@@ -6004,6 +6083,7 @@
             }
       def defs() do
         %{
+          1 => {:id, {:scalar, ""}, :string},
           2 => {:table, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Table}},
           3 => {:user_column, {:oneof, :_user_column}, :string},
           4 => {:role_column, {:oneof, :_role_column}, :string},
@@ -6018,6 +6098,7 @@
             }
       def defs_by_name() do
         %{
+          id: {1, {:scalar, ""}, :string},
           role_column: {4, {:oneof, :_role_column}, :string},
           role_name: {5, {:oneof, :_role_name}, :string},
           scope: {6, {:oneof, :_scope}, {:message, Electric.Satellite.SatPerms.Table}},
@@ -6031,6 +6112,15 @@
       @spec fields_defs() :: list(Protox.Field.t())
       def fields_defs() do
         [
+          %{
+            __struct__: Protox.Field,
+            json_name: "id",
+            kind: {:scalar, ""},
+            label: :optional,
+            name: :id,
+            tag: 1,
+            type: :string
+          },
           %{
             __struct__: Protox.Field,
             json_name: "table",
@@ -6081,6 +6171,35 @@
 
       [
         @spec(field_def(atom) :: {:ok, Protox.Field.t()} | {:error, :no_such_field}),
+        (
+          def field_def(:id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :string
+             }}
+          end
+
+          def field_def("id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :string
+             }}
+          end
+
+          []
+        ),
         (
           def field_def(:table) do
             {:ok,
@@ -6283,6 +6402,9 @@
 
     [
       @spec(default(atom) :: {:ok, boolean | integer | String.t() | float} | {:error, atom}),
+      def default(:id) do
+        {:ok, ""}
+      end,
       def default(:table) do
         {:ok, nil}
       end,
@@ -9285,7 +9407,7 @@
   end,
   defmodule Electric.Satellite.SatPerms.Roles do
     @moduledoc false
-    defstruct roles: []
+    defstruct id: 0, parent_id: nil, rules_id: 0, roles: []
 
     (
       (
@@ -9300,13 +9422,52 @@
 
         @spec encode!(struct) :: iodata | no_return
         def encode!(msg) do
-          [] |> encode_roles(msg)
+          []
+          |> encode_parent_id(msg)
+          |> encode_id(msg)
+          |> encode_rules_id(msg)
+          |> encode_roles(msg)
         end
       )
 
       []
 
       [
+        defp encode_id(acc, msg) do
+          try do
+            if msg.id == 0 do
+              acc
+            else
+              [acc, "\b", Protox.Encode.encode_uint64(msg.id)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:id, "invalid field value"), __STACKTRACE__
+          end
+        end,
+        defp encode_parent_id(acc, msg) do
+          try do
+            case msg.parent_id do
+              nil -> [acc]
+              child_field_value -> [acc, "\x10", Protox.Encode.encode_uint64(child_field_value)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:parent_id, "invalid field value"), __STACKTRACE__
+          end
+        end,
+        defp encode_rules_id(acc, msg) do
+          try do
+            if msg.rules_id == 0 do
+              acc
+            else
+              [acc, "\x18", Protox.Encode.encode_uint64(msg.rules_id)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:rules_id, "invalid field value"), __STACKTRACE__
+          end
+        end,
         defp encode_roles(acc, msg) do
           try do
             case msg.roles do
@@ -9317,7 +9478,7 @@
                 [
                   acc,
                   Enum.reduce(values, [], fn value, acc ->
-                    [acc, "\x12", Protox.Encode.encode_message(value)]
+                    [acc, "\"", Protox.Encode.encode_message(value)]
                   end)
                 ]
             end
@@ -9363,7 +9524,19 @@
               {0, _, _} ->
                 raise %Protox.IllegalTagError{}
 
+              {1, _, bytes} ->
+                {value, rest} = Protox.Decode.parse_uint64(bytes)
+                {[id: value], rest}
+
               {2, _, bytes} ->
+                {value, rest} = Protox.Decode.parse_uint64(bytes)
+                {[parent_id: value], rest}
+
+              {3, _, bytes} ->
+                {value, rest} = Protox.Decode.parse_uint64(bytes)
+                {[rules_id: value], rest}
+
+              {4, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
 
@@ -9426,7 +9599,12 @@
               required(non_neg_integer) => {atom, Protox.Types.kind(), Protox.Types.type()}
             }
       def defs() do
-        %{2 => {:roles, :unpacked, {:message, Electric.Satellite.SatPerms.Role}}}
+        %{
+          1 => {:id, {:scalar, 0}, :uint64},
+          2 => {:parent_id, {:oneof, :_parent_id}, :uint64},
+          3 => {:rules_id, {:scalar, 0}, :uint64},
+          4 => {:roles, :unpacked, {:message, Electric.Satellite.SatPerms.Role}}
+        }
       end
 
       @deprecated "Use fields_defs()/0 instead"
@@ -9434,7 +9612,12 @@
               required(atom) => {non_neg_integer, Protox.Types.kind(), Protox.Types.type()}
             }
       def defs_by_name() do
-        %{roles: {2, :unpacked, {:message, Electric.Satellite.SatPerms.Role}}}
+        %{
+          id: {1, {:scalar, 0}, :uint64},
+          parent_id: {2, {:oneof, :_parent_id}, :uint64},
+          roles: {4, :unpacked, {:message, Electric.Satellite.SatPerms.Role}},
+          rules_id: {3, {:scalar, 0}, :uint64}
+        }
       end
     )
 
@@ -9444,11 +9627,38 @@
         [
           %{
             __struct__: Protox.Field,
+            json_name: "id",
+            kind: {:scalar, 0},
+            label: :optional,
+            name: :id,
+            tag: 1,
+            type: :uint64
+          },
+          %{
+            __struct__: Protox.Field,
+            json_name: "parentId",
+            kind: {:oneof, :_parent_id},
+            label: :proto3_optional,
+            name: :parent_id,
+            tag: 2,
+            type: :uint64
+          },
+          %{
+            __struct__: Protox.Field,
+            json_name: "rulesId",
+            kind: {:scalar, 0},
+            label: :optional,
+            name: :rules_id,
+            tag: 3,
+            type: :uint64
+          },
+          %{
+            __struct__: Protox.Field,
             json_name: "roles",
             kind: :unpacked,
             label: :repeated,
             name: :roles,
-            tag: 2,
+            tag: 4,
             type: {:message, Electric.Satellite.SatPerms.Role}
           }
         ]
@@ -9456,6 +9666,115 @@
 
       [
         @spec(field_def(atom) :: {:ok, Protox.Field.t()} | {:error, :no_such_field}),
+        (
+          def field_def(:id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :uint64
+             }}
+          end
+
+          def field_def("id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :uint64
+             }}
+          end
+
+          []
+        ),
+        (
+          def field_def(:parent_id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "parentId",
+               kind: {:oneof, :_parent_id},
+               label: :proto3_optional,
+               name: :parent_id,
+               tag: 2,
+               type: :uint64
+             }}
+          end
+
+          def field_def("parentId") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "parentId",
+               kind: {:oneof, :_parent_id},
+               label: :proto3_optional,
+               name: :parent_id,
+               tag: 2,
+               type: :uint64
+             }}
+          end
+
+          def field_def("parent_id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "parentId",
+               kind: {:oneof, :_parent_id},
+               label: :proto3_optional,
+               name: :parent_id,
+               tag: 2,
+               type: :uint64
+             }}
+          end
+        ),
+        (
+          def field_def(:rules_id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "rulesId",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :rules_id,
+               tag: 3,
+               type: :uint64
+             }}
+          end
+
+          def field_def("rulesId") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "rulesId",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :rules_id,
+               tag: 3,
+               type: :uint64
+             }}
+          end
+
+          def field_def("rules_id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "rulesId",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :rules_id,
+               tag: 3,
+               type: :uint64
+             }}
+          end
+        ),
         (
           def field_def(:roles) do
             {:ok,
@@ -9465,7 +9784,7 @@
                kind: :unpacked,
                label: :repeated,
                name: :roles,
-               tag: 2,
+               tag: 4,
                type: {:message, Electric.Satellite.SatPerms.Role}
              }}
           end
@@ -9478,7 +9797,7 @@
                kind: :unpacked,
                label: :repeated,
                name: :roles,
-               tag: 2,
+               tag: 4,
                type: {:message, Electric.Satellite.SatPerms.Role}
              }}
           end
@@ -9509,6 +9828,15 @@
 
     [
       @spec(default(atom) :: {:ok, boolean | integer | String.t() | float} | {:error, atom}),
+      def default(:id) do
+        {:ok, 0}
+      end,
+      def default(:parent_id) do
+        {:error, :no_default_value}
+      end,
+      def default(:rules_id) do
+        {:ok, 0}
+      end,
       def default(:roles) do
         {:error, :no_default_value}
       end,
@@ -11743,7 +12071,7 @@
   end,
   defmodule Electric.Satellite.SatPerms do
     @moduledoc false
-    defstruct id: 0, rules: nil, roles: nil
+    defstruct id: 0, user_id: "", rules: nil, roles: []
 
     (
       (
@@ -11758,7 +12086,7 @@
 
         @spec encode!(struct) :: iodata | no_return
         def encode!(msg) do
-          [] |> encode_id(msg) |> encode_rules(msg) |> encode_roles(msg)
+          [] |> encode_id(msg) |> encode_user_id(msg) |> encode_rules(msg) |> encode_roles(msg)
         end
       )
 
@@ -11777,6 +12105,18 @@
               reraise Protox.EncodingError.new(:id, "invalid field value"), __STACKTRACE__
           end
         end,
+        defp encode_user_id(acc, msg) do
+          try do
+            if msg.user_id == "" do
+              acc
+            else
+              [acc, "\x12", Protox.Encode.encode_string(msg.user_id)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:user_id, "invalid field value"), __STACKTRACE__
+          end
+        end,
         defp encode_rules(acc, msg) do
           try do
             if msg.rules == nil do
@@ -11791,10 +12131,17 @@
         end,
         defp encode_roles(acc, msg) do
           try do
-            if msg.roles == nil do
-              acc
-            else
-              [acc, "\"", Protox.Encode.encode_message(msg.roles)]
+            case msg.roles do
+              [] ->
+                acc
+
+              values ->
+                [
+                  acc,
+                  Enum.reduce(values, [], fn value, acc ->
+                    [acc, "\"", Protox.Encode.encode_message(value)]
+                  end)
+                ]
             end
           rescue
             ArgumentError ->
@@ -11842,6 +12189,11 @@
                 {value, rest} = Protox.Decode.parse_int64(bytes)
                 {[id: value], rest}
 
+              {2, _, bytes} ->
+                {len, bytes} = Protox.Varint.decode(bytes)
+                {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
+                {[user_id: Protox.Decode.validate_string(delimited)], rest}
+
               {3, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
@@ -11858,13 +12210,8 @@
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
 
-                {[
-                   roles:
-                     Protox.MergeMessage.merge(
-                       msg.roles,
-                       Electric.Satellite.SatPerms.Roles.decode!(delimited)
-                     )
-                 ], rest}
+                {[roles: msg.roles ++ [Electric.Satellite.SatPerms.Role.decode!(delimited)]],
+                 rest}
 
               {tag, wire_type, rest} ->
                 {_, rest} = Protox.Decode.parse_unknown(tag, wire_type, rest)
@@ -11924,8 +12271,9 @@
       def defs() do
         %{
           1 => {:id, {:scalar, 0}, :int64},
+          2 => {:user_id, {:scalar, ""}, :string},
           3 => {:rules, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Rules}},
-          4 => {:roles, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Roles}}
+          4 => {:roles, :unpacked, {:message, Electric.Satellite.SatPerms.Role}}
         }
       end
 
@@ -11936,8 +12284,9 @@
       def defs_by_name() do
         %{
           id: {1, {:scalar, 0}, :int64},
-          roles: {4, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Roles}},
-          rules: {3, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Rules}}
+          roles: {4, :unpacked, {:message, Electric.Satellite.SatPerms.Role}},
+          rules: {3, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Rules}},
+          user_id: {2, {:scalar, ""}, :string}
         }
       end
     )
@@ -11957,6 +12306,15 @@
           },
           %{
             __struct__: Protox.Field,
+            json_name: "userId",
+            kind: {:scalar, ""},
+            label: :optional,
+            name: :user_id,
+            tag: 2,
+            type: :string
+          },
+          %{
+            __struct__: Protox.Field,
             json_name: "rules",
             kind: {:scalar, nil},
             label: :optional,
@@ -11967,11 +12325,11 @@
           %{
             __struct__: Protox.Field,
             json_name: "roles",
-            kind: {:scalar, nil},
-            label: :optional,
+            kind: :unpacked,
+            label: :repeated,
             name: :roles,
             tag: 4,
-            type: {:message, Electric.Satellite.SatPerms.Roles}
+            type: {:message, Electric.Satellite.SatPerms.Role}
           }
         ]
       end
@@ -12008,6 +12366,46 @@
           []
         ),
         (
+          def field_def(:user_id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "userId",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :user_id,
+               tag: 2,
+               type: :string
+             }}
+          end
+
+          def field_def("userId") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "userId",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :user_id,
+               tag: 2,
+               type: :string
+             }}
+          end
+
+          def field_def("user_id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "userId",
+               kind: {:scalar, ""},
+               label: :optional,
+               name: :user_id,
+               tag: 2,
+               type: :string
+             }}
+          end
+        ),
+        (
           def field_def(:rules) do
             {:ok,
              %{
@@ -12042,11 +12440,11 @@
              %{
                __struct__: Protox.Field,
                json_name: "roles",
-               kind: {:scalar, nil},
-               label: :optional,
+               kind: :unpacked,
+               label: :repeated,
                name: :roles,
                tag: 4,
-               type: {:message, Electric.Satellite.SatPerms.Roles}
+               type: {:message, Electric.Satellite.SatPerms.Role}
              }}
           end
 
@@ -12055,11 +12453,11 @@
              %{
                __struct__: Protox.Field,
                json_name: "roles",
-               kind: {:scalar, nil},
-               label: :optional,
+               kind: :unpacked,
+               label: :repeated,
                name: :roles,
                tag: 4,
-               type: {:message, Electric.Satellite.SatPerms.Roles}
+               type: {:message, Electric.Satellite.SatPerms.Role}
              }}
           end
 
@@ -12092,11 +12490,14 @@
       def default(:id) do
         {:ok, 0}
       end,
+      def default(:user_id) do
+        {:ok, ""}
+      end,
       def default(:rules) do
         {:ok, nil}
       end,
       def default(:roles) do
-        {:ok, nil}
+        {:error, :no_default_value}
       end,
       def default(_) do
         {:error, :no_such_field}
@@ -14546,7 +14947,7 @@
   end,
   defmodule Electric.Satellite.SatPerms.Rules do
     @moduledoc false
-    defstruct grants: [], assigns: []
+    defstruct id: 0, parent_id: nil, grants: [], assigns: []
 
     (
       (
@@ -14561,13 +14962,40 @@
 
         @spec encode!(struct) :: iodata | no_return
         def encode!(msg) do
-          [] |> encode_grants(msg) |> encode_assigns(msg)
+          []
+          |> encode_parent_id(msg)
+          |> encode_id(msg)
+          |> encode_grants(msg)
+          |> encode_assigns(msg)
         end
       )
 
       []
 
       [
+        defp encode_id(acc, msg) do
+          try do
+            if msg.id == 0 do
+              acc
+            else
+              [acc, "\b", Protox.Encode.encode_uint64(msg.id)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:id, "invalid field value"), __STACKTRACE__
+          end
+        end,
+        defp encode_parent_id(acc, msg) do
+          try do
+            case msg.parent_id do
+              nil -> [acc]
+              child_field_value -> [acc, "\x10", Protox.Encode.encode_uint64(child_field_value)]
+            end
+          rescue
+            ArgumentError ->
+              reraise Protox.EncodingError.new(:parent_id, "invalid field value"), __STACKTRACE__
+          end
+        end,
         defp encode_grants(acc, msg) do
           try do
             case msg.grants do
@@ -14578,7 +15006,7 @@
                 [
                   acc,
                   Enum.reduce(values, [], fn value, acc ->
-                    [acc, "\n", Protox.Encode.encode_message(value)]
+                    [acc, "\x1A", Protox.Encode.encode_message(value)]
                   end)
                 ]
             end
@@ -14597,7 +15025,7 @@
                 [
                   acc,
                   Enum.reduce(values, [], fn value, acc ->
-                    [acc, "\x12", Protox.Encode.encode_message(value)]
+                    [acc, "\"", Protox.Encode.encode_message(value)]
                   end)
                 ]
             end
@@ -14644,13 +15072,21 @@
                 raise %Protox.IllegalTagError{}
 
               {1, _, bytes} ->
+                {value, rest} = Protox.Decode.parse_uint64(bytes)
+                {[id: value], rest}
+
+              {2, _, bytes} ->
+                {value, rest} = Protox.Decode.parse_uint64(bytes)
+                {[parent_id: value], rest}
+
+              {3, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
 
                 {[grants: msg.grants ++ [Electric.Satellite.SatPerms.Grant.decode!(delimited)]],
                  rest}
 
-              {2, _, bytes} ->
+              {4, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
 
@@ -14715,8 +15151,10 @@
             }
       def defs() do
         %{
-          1 => {:grants, :unpacked, {:message, Electric.Satellite.SatPerms.Grant}},
-          2 => {:assigns, :unpacked, {:message, Electric.Satellite.SatPerms.Assign}}
+          1 => {:id, {:scalar, 0}, :uint64},
+          2 => {:parent_id, {:oneof, :_parent_id}, :uint64},
+          3 => {:grants, :unpacked, {:message, Electric.Satellite.SatPerms.Grant}},
+          4 => {:assigns, :unpacked, {:message, Electric.Satellite.SatPerms.Assign}}
         }
       end
 
@@ -14726,8 +15164,10 @@
             }
       def defs_by_name() do
         %{
-          assigns: {2, :unpacked, {:message, Electric.Satellite.SatPerms.Assign}},
-          grants: {1, :unpacked, {:message, Electric.Satellite.SatPerms.Grant}}
+          assigns: {4, :unpacked, {:message, Electric.Satellite.SatPerms.Assign}},
+          grants: {3, :unpacked, {:message, Electric.Satellite.SatPerms.Grant}},
+          id: {1, {:scalar, 0}, :uint64},
+          parent_id: {2, {:oneof, :_parent_id}, :uint64}
         }
       end
     )
@@ -14738,11 +15178,29 @@
         [
           %{
             __struct__: Protox.Field,
+            json_name: "id",
+            kind: {:scalar, 0},
+            label: :optional,
+            name: :id,
+            tag: 1,
+            type: :uint64
+          },
+          %{
+            __struct__: Protox.Field,
+            json_name: "parentId",
+            kind: {:oneof, :_parent_id},
+            label: :proto3_optional,
+            name: :parent_id,
+            tag: 2,
+            type: :uint64
+          },
+          %{
+            __struct__: Protox.Field,
             json_name: "grants",
             kind: :unpacked,
             label: :repeated,
             name: :grants,
-            tag: 1,
+            tag: 3,
             type: {:message, Electric.Satellite.SatPerms.Grant}
           },
           %{
@@ -14751,7 +15209,7 @@
             kind: :unpacked,
             label: :repeated,
             name: :assigns,
-            tag: 2,
+            tag: 4,
             type: {:message, Electric.Satellite.SatPerms.Assign}
           }
         ]
@@ -14759,6 +15217,75 @@
 
       [
         @spec(field_def(atom) :: {:ok, Protox.Field.t()} | {:error, :no_such_field}),
+        (
+          def field_def(:id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :uint64
+             }}
+          end
+
+          def field_def("id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "id",
+               kind: {:scalar, 0},
+               label: :optional,
+               name: :id,
+               tag: 1,
+               type: :uint64
+             }}
+          end
+
+          []
+        ),
+        (
+          def field_def(:parent_id) do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "parentId",
+               kind: {:oneof, :_parent_id},
+               label: :proto3_optional,
+               name: :parent_id,
+               tag: 2,
+               type: :uint64
+             }}
+          end
+
+          def field_def("parentId") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "parentId",
+               kind: {:oneof, :_parent_id},
+               label: :proto3_optional,
+               name: :parent_id,
+               tag: 2,
+               type: :uint64
+             }}
+          end
+
+          def field_def("parent_id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "parentId",
+               kind: {:oneof, :_parent_id},
+               label: :proto3_optional,
+               name: :parent_id,
+               tag: 2,
+               type: :uint64
+             }}
+          end
+        ),
         (
           def field_def(:grants) do
             {:ok,
@@ -14768,7 +15295,7 @@
                kind: :unpacked,
                label: :repeated,
                name: :grants,
-               tag: 1,
+               tag: 3,
                type: {:message, Electric.Satellite.SatPerms.Grant}
              }}
           end
@@ -14781,7 +15308,7 @@
                kind: :unpacked,
                label: :repeated,
                name: :grants,
-               tag: 1,
+               tag: 3,
                type: {:message, Electric.Satellite.SatPerms.Grant}
              }}
           end
@@ -14797,7 +15324,7 @@
                kind: :unpacked,
                label: :repeated,
                name: :assigns,
-               tag: 2,
+               tag: 4,
                type: {:message, Electric.Satellite.SatPerms.Assign}
              }}
           end
@@ -14810,7 +15337,7 @@
                kind: :unpacked,
                label: :repeated,
                name: :assigns,
-               tag: 2,
+               tag: 4,
                type: {:message, Electric.Satellite.SatPerms.Assign}
              }}
           end
@@ -14841,6 +15368,12 @@
 
     [
       @spec(default(atom) :: {:ok, boolean | integer | String.t() | float} | {:error, atom}),
+      def default(:id) do
+        {:ok, 0}
+      end,
+      def default(:parent_id) do
+        {:error, :no_default_value}
+      end,
       def default(:grants) do
         {:error, :no_default_value}
       end,
@@ -15174,7 +15707,7 @@
   end,
   defmodule Electric.Satellite.SatPerms.Scope do
     @moduledoc false
-    defstruct table: nil, id: ""
+    defstruct table: nil, id: []
 
     (
       (
@@ -15210,10 +15743,17 @@
         end,
         defp encode_id(acc, msg) do
           try do
-            if msg.id == "" do
-              acc
-            else
-              [acc, "\x12", Protox.Encode.encode_string(msg.id)]
+            case msg.id do
+              [] ->
+                acc
+
+              values ->
+                [
+                  acc,
+                  Enum.reduce(values, [], fn value, acc ->
+                    [acc, "\x12", Protox.Encode.encode_string(value)]
+                  end)
+                ]
             end
           rescue
             ArgumentError ->
@@ -15272,7 +15812,7 @@
               {2, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
-                {[id: Protox.Decode.validate_string(delimited)], rest}
+                {[id: msg.id ++ [Protox.Decode.validate_string(delimited)]], rest}
 
               {tag, wire_type, rest} ->
                 {_, rest} = Protox.Decode.parse_unknown(tag, wire_type, rest)
@@ -15332,7 +15872,7 @@
       def defs() do
         %{
           1 => {:table, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Table}},
-          2 => {:id, {:scalar, ""}, :string}
+          2 => {:id, :unpacked, :string}
         }
       end
 
@@ -15342,7 +15882,7 @@
             }
       def defs_by_name() do
         %{
-          id: {2, {:scalar, ""}, :string},
+          id: {2, :unpacked, :string},
           table: {1, {:scalar, nil}, {:message, Electric.Satellite.SatPerms.Table}}
         }
       end
@@ -15364,8 +15904,8 @@
           %{
             __struct__: Protox.Field,
             json_name: "id",
-            kind: {:scalar, ""},
-            label: :optional,
+            kind: :unpacked,
+            label: :repeated,
             name: :id,
             tag: 2,
             type: :string
@@ -15410,8 +15950,8 @@
              %{
                __struct__: Protox.Field,
                json_name: "id",
-               kind: {:scalar, ""},
-               label: :optional,
+               kind: :unpacked,
+               label: :repeated,
                name: :id,
                tag: 2,
                type: :string
@@ -15423,8 +15963,8 @@
              %{
                __struct__: Protox.Field,
                json_name: "id",
-               kind: {:scalar, ""},
-               label: :optional,
+               kind: :unpacked,
+               label: :repeated,
                name: :id,
                tag: 2,
                type: :string
@@ -15461,7 +16001,7 @@
         {:ok, nil}
       end,
       def default(:id) do
-        {:ok, ""}
+        {:error, :no_default_value}
       end,
       def default(_) do
         {:error, :no_such_field}
@@ -16777,7 +17317,7 @@
   end,
   defmodule Electric.Satellite.SatPerms.Role do
     @moduledoc false
-    defstruct id: "", role: "", user_id: "", assign_id: "", scope: nil
+    defstruct row_id: [], role: "", user_id: "", assign_id: "", scope: nil
 
     (
       (
@@ -16794,7 +17334,7 @@
         def encode!(msg) do
           []
           |> encode_scope(msg)
-          |> encode_id(msg)
+          |> encode_row_id(msg)
           |> encode_role(msg)
           |> encode_user_id(msg)
           |> encode_assign_id(msg)
@@ -16804,16 +17344,23 @@
       []
 
       [
-        defp encode_id(acc, msg) do
+        defp encode_row_id(acc, msg) do
           try do
-            if msg.id == "" do
-              acc
-            else
-              [acc, "\n", Protox.Encode.encode_string(msg.id)]
+            case msg.row_id do
+              [] ->
+                acc
+
+              values ->
+                [
+                  acc,
+                  Enum.reduce(values, [], fn value, acc ->
+                    [acc, "\n", Protox.Encode.encode_string(value)]
+                  end)
+                ]
             end
           rescue
             ArgumentError ->
-              reraise Protox.EncodingError.new(:id, "invalid field value"), __STACKTRACE__
+              reraise Protox.EncodingError.new(:row_id, "invalid field value"), __STACKTRACE__
           end
         end,
         defp encode_role(acc, msg) do
@@ -16903,7 +17450,7 @@
               {1, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
                 {delimited, rest} = Protox.Decode.parse_delimited(bytes, len)
-                {[id: Protox.Decode.validate_string(delimited)], rest}
+                {[row_id: msg.row_id ++ [Protox.Decode.validate_string(delimited)]], rest}
 
               {2, _, bytes} ->
                 {len, bytes} = Protox.Varint.decode(bytes)
@@ -16995,7 +17542,7 @@
             }
       def defs() do
         %{
-          1 => {:id, {:scalar, ""}, :string},
+          1 => {:row_id, :unpacked, :string},
           2 => {:role, {:scalar, ""}, :string},
           3 => {:user_id, {:scalar, ""}, :string},
           4 => {:assign_id, {:scalar, ""}, :string},
@@ -17010,8 +17557,8 @@
       def defs_by_name() do
         %{
           assign_id: {4, {:scalar, ""}, :string},
-          id: {1, {:scalar, ""}, :string},
           role: {2, {:scalar, ""}, :string},
+          row_id: {1, :unpacked, :string},
           scope: {5, {:oneof, :_scope}, {:message, Electric.Satellite.SatPerms.Scope}},
           user_id: {3, {:scalar, ""}, :string}
         }
@@ -17024,10 +17571,10 @@
         [
           %{
             __struct__: Protox.Field,
-            json_name: "id",
-            kind: {:scalar, ""},
-            label: :optional,
-            name: :id,
+            json_name: "rowId",
+            kind: :unpacked,
+            label: :repeated,
+            name: :row_id,
             tag: 1,
             type: :string
           },
@@ -17073,33 +17620,44 @@
       [
         @spec(field_def(atom) :: {:ok, Protox.Field.t()} | {:error, :no_such_field}),
         (
-          def field_def(:id) do
+          def field_def(:row_id) do
             {:ok,
              %{
                __struct__: Protox.Field,
-               json_name: "id",
-               kind: {:scalar, ""},
-               label: :optional,
-               name: :id,
+               json_name: "rowId",
+               kind: :unpacked,
+               label: :repeated,
+               name: :row_id,
                tag: 1,
                type: :string
              }}
           end
 
-          def field_def("id") do
+          def field_def("rowId") do
             {:ok,
              %{
                __struct__: Protox.Field,
-               json_name: "id",
-               kind: {:scalar, ""},
-               label: :optional,
-               name: :id,
+               json_name: "rowId",
+               kind: :unpacked,
+               label: :repeated,
+               name: :row_id,
                tag: 1,
                type: :string
              }}
           end
 
-          []
+          def field_def("row_id") do
+            {:ok,
+             %{
+               __struct__: Protox.Field,
+               json_name: "rowId",
+               kind: :unpacked,
+               label: :repeated,
+               name: :row_id,
+               tag: 1,
+               type: :string
+             }}
+          end
         ),
         (
           def field_def(:role) do
@@ -17263,8 +17821,8 @@
 
     [
       @spec(default(atom) :: {:ok, boolean | integer | String.t() | float} | {:error, atom}),
-      def default(:id) do
-        {:ok, ""}
+      def default(:row_id) do
+        {:error, :no_default_value}
       end,
       def default(:role) do
         {:ok, ""}

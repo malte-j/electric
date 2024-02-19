@@ -705,6 +705,8 @@ defmodule Electric.Satellite.Protocol do
   def handle_outgoing_txs(events, state, acc \\ [])
 
   def handle_outgoing_txs([{tx, offset} | events], %State{} = state, acc) do
+    {tx, state} = manage_permissions_changes(tx, state)
+
     filtered_tx =
       tx
       |> maybe_strip_migration_ddl(state.out_rep.last_migration_xid_at_initial_sync)
@@ -734,6 +736,33 @@ defmodule Electric.Satellite.Protocol do
 
   def handle_outgoing_txs([], state, acc) do
     {Enum.reverse(acc), state}
+  end
+
+  defp manage_permissions_changes(tx, state) do
+    %{auth: %{user_id: user_id}} = state
+
+    {changes, state} =
+      Enum.flat_map_reduce(
+        tx.changes,
+        state,
+        fn
+          %Changes.UpdatedPermissions{type: :user, permissions: %{user_id: ^user_id}}, state ->
+            Logger.debug(fn -> "User permissions updated for connection" end)
+            {[], state}
+
+          %Changes.UpdatedPermissions{type: :user}, state ->
+            {[], state}
+
+          %Changes.UpdatedPermissions{type: :global}, state ->
+            Logger.debug(fn -> "Global permissions updated for connection" end)
+            {[], state}
+
+          change, state ->
+            {[change], state}
+        end
+      )
+
+    {%{tx | changes: changes}, state}
   end
 
   # If the client received at least one migration during the initial sync, the value of

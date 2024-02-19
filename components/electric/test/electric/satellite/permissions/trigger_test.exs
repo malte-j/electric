@@ -1,8 +1,9 @@
 defmodule Electric.Satellite.Permissions.TriggerTest do
   use ExUnit.Case, async: true
+  use Electric.Postgres.MockSchemaLoader
 
-  alias Electric.Satellite.Permissions
   alias Electric.Satellite.Permissions.Trigger
+  alias Electric.Satellite.SatPerms
 
   alias ElectricTest.PermissionsHelpers.{
     Auth,
@@ -21,6 +22,58 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
   @project_memberships {"public", "project_memberships"}
 
   setup do
+    loader_spec =
+      MockSchemaLoader.backend_spec(
+        migrations: [
+          {"01",
+           [
+             "create table users (id uuid primary key)",
+             "create table workspaces (id uuid primary key)",
+             "create table projects (id uuid primary key, workspace_id uuid not null references workspaces (id))",
+             "create table issues (id uuid primary key, project_id uuid not null references projects (id))",
+             "create table comments (id uuid primary key, issue_id uuid not null references issues (id))",
+             "create table reactions (id uuid primary key, comment_id uuid not null references comments (id))",
+             """
+             create table project_memberships (
+                id uuid primary key,
+                user_id uuid not null references users (id),
+                project_id uuid not null references projects (id),
+                role text not null
+             )
+             """
+             # "create table regions (id uuid primary key)",
+             # "create table offices (id uuid primary key, region_id uuid not null references regions (id))",
+             # "create table projects (id uuid primary key, workspace_id uuid not null references workspaces (id))",
+             # "create table users (id uuid primary key)",
+             # "create table teams (id uuid primary key)",
+             # """
+             # create table team_memberships (
+             #    id uuid primary key,
+             #    user_id uuid not null references users (id),
+             #    team_id uuid not null references teams (id),
+             #    team_role text not null
+             # )
+             # """,
+             # """
+             # create table site_admins (
+             #    id uuid primary key,
+             #    user_id uuid not null references users (id),
+             #    site_role text not null
+             # )
+             # """,
+             # """
+             # create table my_default.admin_users (
+             #    id uuid primary key,
+             #    user_id uuid not null references users (id)
+             # )
+             # """
+           ]}
+        ]
+      )
+
+    {:ok, loader} = SchemaLoader.connect(loader_spec, [])
+    {:ok, schema_version} = SchemaLoader.load(loader)
+
     tree =
       Tree.new(
         [
@@ -42,13 +95,17 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
 
     {:ok, _} = start_supervised(Perms.Transient)
 
-    {:ok, tree: tree}
+    {:ok, tree: tree, loader: loader, schema_version: schema_version}
   end
 
   def assign(ddlx) do
     %{assigns: [assign | _]} = Perms.to_rules(ddlx)
 
     assign
+  end
+
+  def callback(event, change, :loader) do
+    {event, change}
   end
 
   describe "for_assign/1" do
@@ -58,10 +115,13 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
           "assign (projects, #{table(@project_memberships)}.role) to #{table(@project_memberships)}.user_id"
         )
 
-      assert [{@project_memberships, fun}] = Trigger.for_assign(assign)
-      assert is_function(fun, 3)
+      assert {@project_memberships, fun} =
+               Trigger.for_assign(assign, cxt.schema_version, &callback/3)
 
-      %{user_id: user_id} = auth = Auth.user()
+      assert is_function(fun, 2)
+
+      %{id: assign_id} = assign
+      user_id = Auth.user_id()
 
       change =
         Chgs.insert(@project_memberships, %{
@@ -71,27 +131,34 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
           "role" => "admin"
         })
 
-      assert [{:insert, {@project_memberships, ["pm1"]}, role}] = fun.(change, cxt.tree, auth)
+      assert {{:insert, role}, ^change} = fun.(change, :loader)
 
-      assert %Permissions.Role{
-               id: ["pm1"],
+      assert %SatPerms.Role{
+               row_id: ["pm1"],
                role: "admin",
+               assign_id: ^assign_id,
                user_id: ^user_id,
-               scope: {@projects, ["p1"]}
+               scope: %SatPerms.Scope{
+                 table: %SatPerms.Table{schema: "public", name: "projects"},
+                 id: ["p1"]
+               }
              } = role
 
-      assert [] = fun.(change, cxt.tree, Auth.user("1191723b-37a5-46c8-818e-326cfbc2c0a7"))
-      assert [] = fun.(change, cxt.tree, Auth.nobody())
+      # assert [] = fun.(change, cxt.tree, Auth.user("1191723b-37a5-46c8-818e-326cfbc2c0a7"))
+      # assert [] = fun.(change, cxt.tree, Auth.nobody())
     end
 
     test "supports static role names", cxt do
       assign =
         assign("assign (projects, 'something') to #{table(@project_memberships)}.user_id")
 
-      assert [{@project_memberships, fun}] = Trigger.for_assign(assign)
-      assert is_function(fun, 3)
+      assert {@project_memberships, fun} =
+               Trigger.for_assign(assign, cxt.schema_version, &callback/3)
 
-      %{user_id: user_id} = auth = Auth.user()
+      assert is_function(fun, 2)
+
+      %{id: assign_id} = assign
+      user_id = Auth.user_id()
 
       change =
         Chgs.insert(@project_memberships, %{
@@ -100,13 +167,17 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
           "user_id" => user_id
         })
 
-      assert [{:insert, {@project_memberships, ["pm1"]}, role}] = fun.(change, cxt.tree, auth)
+      assert {{:insert, role}, ^change} = fun.(change, :loader)
 
-      assert %Permissions.Role{
-               id: ["pm1"],
+      assert %SatPerms.Role{
+               row_id: ["pm1"],
                role: "something",
+               assign_id: ^assign_id,
                user_id: ^user_id,
-               scope: {@projects, ["p1"]}
+               scope: %SatPerms.Scope{
+                 table: %SatPerms.Table{schema: "public", name: "projects"},
+                 id: ["p1"]
+               }
              } = role
     end
 
@@ -116,10 +187,13 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
           "assign #{table(@project_memberships)}.role to #{table(@project_memberships)}.user_id"
         )
 
-      assert [{@project_memberships, fun}] = Trigger.for_assign(assign)
-      assert is_function(fun, 3)
+      assert {@project_memberships, fun} =
+               Trigger.for_assign(assign, cxt.schema_version, &callback/3)
 
-      %{user_id: user_id} = auth = Auth.user()
+      assert is_function(fun, 2)
+
+      %{id: assign_id} = assign
+      user_id = Auth.user_id()
 
       change =
         Chgs.insert(@project_memberships, %{
@@ -129,11 +203,12 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
           "role" => "admin"
         })
 
-      assert [{:insert, {@project_memberships, ["pm1"]}, role}] = fun.(change, cxt.tree, auth)
+      assert {{:insert, role}, ^change} = fun.(change, :loader)
 
-      assert %Permissions.Role{
-               id: ["pm1"],
+      assert %SatPerms.Role{
+               row_id: ["pm1"],
                role: "admin",
+               assign_id: ^assign_id,
                user_id: ^user_id,
                scope: nil
              } = role
@@ -143,10 +218,13 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
       assign =
         assign("assign 'something' to #{table(@project_memberships)}.user_id")
 
-      assert [{@project_memberships, fun}] = Trigger.for_assign(assign)
-      assert is_function(fun, 3)
+      assert {@project_memberships, fun} =
+               Trigger.for_assign(assign, cxt.schema_version, &callback/3)
 
-      %{user_id: user_id} = auth = Auth.user()
+      assert is_function(fun, 2)
+
+      %{id: assign_id} = assign
+      user_id = Auth.user_id()
 
       change =
         Chgs.insert(@project_memberships, %{
@@ -155,11 +233,12 @@ defmodule Electric.Satellite.Permissions.TriggerTest do
           "user_id" => user_id
         })
 
-      assert [{:insert, {@project_memberships, ["pm1"]}, role}] = fun.(change, cxt.tree, auth)
+      assert {{:insert, role}, ^change} = fun.(change, :loader)
 
-      assert %Permissions.Role{
-               id: ["pm1"],
+      assert %SatPerms.Role{
+               row_id: ["pm1"],
                role: "something",
+               assign_id: ^assign_id,
                user_id: ^user_id,
                scope: nil
              } = role
