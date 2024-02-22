@@ -6,58 +6,8 @@ defmodule Electric.Postgres.Extension.SchemaLoader.Epgsql do
   Uses a connection pool to avoid deadlocks when e.g. refreshing a subscription
   then attempting to run a query against the db.
   """
-  defmodule ConnectionPool do
-    @moduledoc false
-
-    alias Electric.Replication.{Connectors, Postgres.Client}
-
-    require Logger
-
-    @behaviour NimblePool
-
-    @impl NimblePool
-    def init_worker(conn_config) do
-      # NOTE: use `__connection__: conn` in tests to pass an existing connection
-      {:ok, conn} =
-        case Keyword.fetch(conn_config, :__connection__) do
-          {:ok, conn} ->
-            {:ok, conn}
-
-          :error ->
-            conn_config
-            |> Connectors.get_connection_opts()
-            |> Client.connect()
-        end
-
-      {:ok, conn, conn_config}
-    end
-
-    @impl NimblePool
-    # Transfer the port to the caller
-    def handle_checkout(:checkout, _from, conn, pool_state) do
-      {:ok, conn, conn, pool_state}
-    end
-
-    @impl NimblePool
-    def handle_checkin(:ok, _from, conn, pool_state) do
-      {:ok, conn, pool_state}
-    end
-
-    @impl NimblePool
-    def terminate_worker(_reason, conn, pool_state) do
-      Logger.debug("Terminating idle db connection #{inspect(conn)}")
-      Client.close(conn)
-      {:ok, pool_state}
-    end
-
-    @impl NimblePool
-    def handle_ping(_conn, _pool_state) do
-      {:remove, :idle}
-    end
-  end
-
-  alias Electric.Postgres.{Extension, Extension.SchemaLoader, Schema}
-  alias Electric.Replication.{Connectors, Postgres.Client}
+  alias Electric.Postgres.{ConnectionPool, Extension, Extension.SchemaLoader, Schema}
+  alias Electric.Replication.Postgres.Client
 
   require Logger
 
@@ -66,26 +16,18 @@ defmodule Electric.Postgres.Extension.SchemaLoader.Epgsql do
   @pool_timeout 5_000
 
   @impl true
-  def connect(conn_config, _opts) do
-    {:ok, _pool} =
-      NimblePool.start_link(
-        worker: {ConnectionPool, conn_config},
-        # only connect when required, not immediately
-        lazy: true,
-        pool_size: 4,
-        worker_idle_timeout: 30_000
-      )
+  def connect(conn_config, opts) do
+    {:ok, {__MODULE__, conn_config, opts}}
   end
 
-  defp checkout!(pool, fun) do
-    NimblePool.checkout!(
-      pool,
-      :checkout,
-      fn _pool, conn ->
-        {fun.(conn), :ok}
-      end,
-      @pool_timeout
-    )
+  defp checkout!(state, fun) do
+    {__MODULE__, conn_config, _opts} = state
+
+    # NOTE: use `__connection__: conn` in tests to pass an existing connection
+    case Keyword.fetch(conn_config, :__connection__) do
+      {:ok, conn} -> fun.(conn)
+      :error -> ConnectionPool.exec_fun!(ConnectionPool, fun, @pool_timeout)
+    end
   end
 
   @impl true

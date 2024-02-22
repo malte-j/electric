@@ -35,7 +35,13 @@ defmodule Electric.Replication.PostgresConnectorSup do
 
     writer_config = [conn_config: connector_config, producer: SatelliteCollectorProducer.name()]
 
+    pool_module = Electric.Postgres.ConnectionPool
+
     children = [
+      %{
+        id: pool_module,
+        start: {pool_module, :start_link, [connector_config, [name: pool_module]]}
+      },
       %{
         id: :postgres_schema_cache,
         start: {SchemaCache, :start_link, [connector_config]}

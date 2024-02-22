@@ -1,42 +1,11 @@
 defmodule Electric.Postgres.ProxyTest do
-  use ExUnit.Case, async: false
+  use Electric.Proxy.Case, async: false
 
   alias Electric.Postgres.Extension
   alias Electric.Postgres.Extension.SchemaLoader
   alias Electric.Postgres.Proxy.UpstreamConnection
 
   import Electric.Postgres.TestConnection
-
-  setup do
-    context = create_test_db()
-
-    assert {:ok, _versions} = Electric.Postgres.Extension.migrate(context.conn)
-
-    port = 9931
-    loader = {SchemaLoader.Epgsql, []}
-
-    connector_config = [
-      origin: "my_origin",
-      connection: context.conn_opts,
-      proxy: [listen: [port: port], password: "password"]
-    ]
-
-    {:ok, _proxy} =
-      start_supervised({Electric.Postgres.Proxy,
-       connector_config: connector_config,
-       handler_config: [
-         loader: loader
-         # injector: [capture_mode: Electric.Postgres.Proxy.Injector.Capture.Transparent]
-       ]})
-
-    {:ok, _repo} =
-      start_supervised(
-        {Electric.Postgres.Proxy.TestRepo,
-         Keyword.merge(context.pg_config, port: port, pool_size: 2)}
-      )
-
-    {:ok, Map.merge(context, %{repo: Electric.Postgres.Proxy.TestRepo})}
-  end
 
   test "electrified index tracking", cxt do
     sqls = [

@@ -32,7 +32,8 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducerTest do
     {SchemaLoader, [:passthrough],
      [
        count_electrified_tables: fn _ -> {:ok, 0} end
-     ]}
+     ]},
+    {Electric.Postgres.ConnectionPool, [:passthrough], [exec_fun!: fn _ -> :ok end]}
   ]) do
     {:ok, %{}}
   end
