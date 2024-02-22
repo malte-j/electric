@@ -2,14 +2,10 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
   use GenStage
   require Logger
 
-  alias Electric.Postgres.Extension.SchemaLoader
-  alias Electric.Postgres.Extension.SchemaCache
-  alias Electric.Telemetry.Metrics
+  alias Electric.Postgres.Extension.{SchemaCache, SchemaLoader}
 
   alias Electric.Postgres.LogicalReplication
   alias Electric.Postgres.LogicalReplication.Messages
-  alias Electric.Replication.Postgres.Client
-  alias Electric.Replication.Connectors
 
   alias Electric.Postgres.LogicalReplication.Messages.{
     Begin,
@@ -24,6 +20,8 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
     Message
   }
 
+  alias Electric.Postgres.Lsn
+
   alias Electric.Replication.Changes.{
     Transaction,
     NewRecord,
@@ -31,6 +29,11 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
     DeletedRecord,
     TruncatedRelation
   }
+
+  alias Electric.Replication.Connectors
+  alias Electric.Replication.Postgres.Client
+
+  alias Electric.Telemetry.Metrics
 
   defmodule State do
     defstruct conn: nil,
@@ -42,24 +45,30 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
               client: nil,
               origin: nil,
               types: %{},
-              span: nil
+              span: nil,
+              main_slot: "",
+              main_slot_lsn: %Lsn{},
+              resumable_wal_window: 1
 
     @type t() :: %__MODULE__{
             conn: pid(),
             demand: non_neg_integer(),
             queue: :queue.queue(),
             relations: %{Messages.relation_id() => %Relation{}},
-            transaction: {Electric.Postgres.Lsn.t(), %Transaction{}},
-            publication: String.t(),
+            transaction: {Lsn.t(), %Transaction{}},
+            publication: binary(),
             origin: Connectors.origin(),
             types: %{},
-            span: Metrics.t() | nil
+            span: Metrics.t() | nil,
+            main_slot: binary(),
+            main_slot_lsn: Lsn.t(),
+            resumable_wal_window: pos_integer()
           }
   end
 
   @spec start_link(Connectors.config()) :: :ignore | {:error, any} | {:ok, pid}
-  def start_link(conn_config) do
-    GenStage.start_link(__MODULE__, conn_config)
+  def start_link(connector_config) do
+    GenStage.start_link(__MODULE__, connector_config)
   end
 
   @spec get_name(Connectors.origin()) :: Electric.reg_name()
@@ -72,31 +81,34 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
   end
 
   @impl true
-  def init(conn_config) do
-    origin = Connectors.origin(conn_config)
-    conn_opts = Connectors.get_connection_opts(conn_config, replication: true)
-    repl_opts = Connectors.get_replication_opts(conn_config)
+  def init(connector_config) do
+    origin = Connectors.origin(connector_config)
+    conn_opts = Connectors.get_connection_opts(connector_config, replication: true)
+    repl_opts = Connectors.get_replication_opts(connector_config)
+    wal_window_opts = Connectors.get_wal_window_opts(connector_config)
 
     :gproc.reg(name(origin))
 
     publication = repl_opts.publication
-    slot = repl_opts.slot
+    main_slot = repl_opts.slot
+    tmp_slot = main_slot <> "_rc"
 
-    Logger.debug("#{__MODULE__}.init: publication: '#{publication}', slot: '#{slot}'")
+    Logger.metadata(pg_producer: origin)
 
-    Logger.info("Starting replication from #{origin}")
-    Logger.info("#{inspect(__MODULE__)}.init(#{inspect(Client.sanitize_conn_opts(conn_opts))})")
+    Logger.info(
+      "Starting replication with publication=#{publication} and slots=#{main_slot},#{tmp_slot}}"
+    )
 
     with {:ok, conn} <- Client.connect(conn_opts),
-         {:ok, _} <- Client.create_slot(conn, slot),
-         :ok <- Client.set_display_settings_for_replication(conn),
          {:ok, {short, long, cluster}} <- Client.get_server_versions(conn),
          {:ok, table_count} <- SchemaLoader.count_electrified_tables({SchemaCache, origin}),
-         :ok <- Client.start_replication(conn, publication, slot, self()) do
-      Process.monitor(conn)
-
-      Logger.metadata(pg_producer: origin)
-
+         :ok <- Client.set_display_settings_for_replication(conn),
+         {:ok, _slot_name} <- Client.create_main_slot(conn, main_slot),
+         {:ok, _slot_name, main_slot_lsn} <-
+           Client.create_temporary_slot(conn, main_slot, tmp_slot),
+         {:ok, current_lsn} <- Client.current_lsn(conn),
+         start_lsn = starting_lsn_for_replication(main_slot_lsn, current_lsn, wal_window_opts),
+         :ok <- Client.start_replication(conn, publication, tmp_slot, start_lsn, self()) do
       span =
         Metrics.start_span([:postgres, :replication_from], %{electrified_tables: table_count}, %{
           cluster: cluster,
@@ -110,8 +122,25 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
          queue: :queue.new(),
          publication: publication,
          origin: origin,
-         span: span
+         span: span,
+         main_slot: main_slot,
+         main_slot_lsn: main_slot_lsn,
+         resumable_wal_window: wal_window_opts.resumable_size
        }}
+    end
+  end
+
+  # The idea is to fill in the available in-memory cache with WAL records.
+  #
+  # TODO(optimization): fetch the last ack'ed LSN from acknowledged_client_lsns and use it to
+  # start the replication connection.
+  defp starting_lsn_for_replication(main_slot_lsn, current_lsn, wal_window_opts) do
+    lsn = Lsn.increment(current_lsn, -wal_window_opts.in_memory_size)
+
+    if Lsn.compare(main_slot_lsn, lsn) == :lt do
+      lsn
+    else
+      main_slot_lsn
     end
   end
 
@@ -258,6 +287,7 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
     Metrics.span_event(state.span, :transaction, Transaction.count_operations(event))
 
     %{state | queue: :queue.in(event, queue), transaction: nil}
+    |> advance_main_slot(end_lsn)
     |> dispatch_events([])
   end
 
@@ -319,9 +349,24 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
     }
   end
 
-  @spec ack(pid(), Connectors.origin(), Electric.Postgres.Lsn.t()) :: :ok
+  @spec ack(pid(), Connectors.origin(), Lsn.t()) :: :ok
   def ack(conn, origin, lsn) do
     Logger.debug("Acknowledging #{lsn}", origin: origin)
     Client.acknowledge_lsn(conn, lsn)
+  end
+
+  defp advance_main_slot(state, end_lsn) do
+    min_in_window_lsn = Lsn.increment(end_lsn, -state.resumable_wal_window)
+
+    if Lsn.compare(state.main_slot_lsn, min_in_window_lsn) == :lt do
+      :ok =
+        Electric.Postgres.ConnectionPool.exec_fun!(
+          &Client.advance_replication_slot(&1, state.main_slot, min_in_window_lsn)
+        )
+
+      %{state | main_slot_lsn: min_in_window_lsn}
+    else
+      state
+    end
   end
 end

@@ -152,8 +152,8 @@ defmodule Electric.Replication.Postgres.Client do
     {:ok, system_id}
   end
 
-  @spec create_slot(connection(), String.t()) :: {:ok, String.t()}
-  def create_slot(conn, slot_name) do
+  @spec create_main_slot(connection(), String.t()) :: {:ok, String.t()}
+  def create_main_slot(conn, slot_name) do
     case squery(
            conn,
            ~s|CREATE_REPLICATION_SLOT "#{slot_name}" LOGICAL pgoutput NOEXPORT_SNAPSHOT|
@@ -177,6 +177,27 @@ defmodule Electric.Replication.Postgres.Client do
     end
   end
 
+  def create_temporary_slot(conn, source_slot_name, tmp_slot_name) do
+    case squery(
+           conn,
+           "SELECT * FROM pg_copy_logical_replication_slot('#{source_slot_name}', '#{tmp_slot_name}', true)"
+         ) do
+      {:ok, _, [{^tmp_slot_name, lsn_str}]} ->
+        {:ok, tmp_slot_name, Lsn.from_string(lsn_str)}
+    end
+  end
+
+  def current_lsn(conn) do
+    with {:ok, _, [{lsn_str}]} <- squery(conn, "SELECT pg_current_wal_lsn()") do
+      {:ok, Lsn.from_string(lsn_str)}
+    end
+  end
+
+  def advance_replication_slot(conn, slot_name, to_lsn) do
+    {:ok, _, _} = squery(conn, "SELECT pg_replication_slot_advance('#{slot_name}', '#{to_lsn}')")
+    :ok
+  end
+
   def create_subscription(conn, name, publication_name, connection_params) do
     connection_string = Enum.map_join(connection_params, " ", fn {k, v} -> "#{k}=#{v}" end)
 
@@ -197,14 +218,15 @@ defmodule Electric.Replication.Postgres.Client do
 
   Returns `:ok` on success.
   """
-  def start_replication(conn, publication, slot, handler) do
+  def start_replication(conn, publication, slot, lsn, handler) do
     Logger.debug(
       "#{__MODULE__} start_replication: slot: '#{slot}', publication: '#{publication}'"
     )
 
-    slot = String.to_charlist(slot)
+    slot = to_charlist(slot)
+    lsn = to_charlist(lsn)
     opts = ~c"proto_version '1', publication_names '#{publication}', messages"
-    :epgsql.start_replication(conn, slot, handler, [], ~c"0/0", opts)
+    :epgsql.start_replication(conn, slot, handler, [], lsn, opts)
   end
 
   @doc """
