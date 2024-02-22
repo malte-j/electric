@@ -23,11 +23,11 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
   @ets_table_name :ets_backed_cached_wal
 
   @typep state :: %{
+           wal_window_size: non_neg_integer(),
            notification_requests: %{optional(reference()) => {Api.wal_pos(), pid()}},
            table: ETS.Set.t(),
            last_seen_wal_pos: Api.wal_pos(),
-           current_cache_count: non_neg_integer(),
-           max_cache_count: non_neg_integer()
+           current_tx_count: non_neg_integer()
          }
 
   # Public API
@@ -112,11 +112,11 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
     Logger.metadata(component: "CachedWal.EtsBacked")
 
     state = %{
+      wal_window_size: Keyword.fetch!(opts, :wal_window_size),
       notification_requests: %{},
       table: set,
       last_seen_wal_pos: 0,
-      current_cache_count: 0,
-      max_cache_count: Keyword.get(opts, :max_cache_count, 10000)
+      current_tx_count: 0
     }
 
     case Keyword.get(opts, :subscribe_to) do
@@ -155,9 +155,9 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
       end
 
     stats = %{
-      transaction_count: state.current_cache_count,
-      max_transaction_count: state.max_cache_count,
+      transaction_count: state.current_tx_count,
       oldest_transaction_timestamp: oldest_timestamp,
+      max_cache_size: state.wal_window_size,
       cache_memory_total:
         ETS.Set.info!(state.table, true)[:memory] * :erlang.system_info(:wordsize)
     }
@@ -170,13 +170,15 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
     ETS.Set.delete_all!(state.table)
 
     # This doesn't do anything with notification requests, but this function is not meant to be used in production
-    {:noreply, [], %{state | current_cache_count: 0, last_seen_wal_pos: 0}}
+    {:noreply, [], %{state | current_tx_count: 0, last_seen_wal_pos: 0}}
   end
 
   @impl GenStage
   @spec handle_events([Transaction.t()], term(), state()) :: {:noreply, [], any}
   def handle_events(events, _, state) do
     events
+    # TODO: Make sure that when this process crashes, LogicalReplicationProducer is restarted as well
+    # in order to fill up the in-memory cache. Use the one_for_all supervisor strategy.
     |> Stream.each(& &1.ack_fn.())
     # TODO: We're currently storing & streaming empty transactions to Satellite, which is not ideal, but we need
     #       to be aware of all transaction IDs and LSNs that happen, otherwise flakiness begins. I don't like that,
@@ -192,18 +194,17 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
     end)
     |> Enum.to_list()
     |> tap(&ETS.Set.put(state.table, &1))
-    |> Electric.Utils.list_last_and_length()
+    |> List.last()
     |> case do
-      {_, 0} ->
+      nil ->
         # All transactions were empty
         {:noreply, [], state}
 
-      {{position, _}, total} ->
+      {position, _} ->
         state =
           state
           |> Map.put(:last_seen_wal_pos, position)
           |> fulfill_notification_requests()
-          |> Map.update!(:current_cache_count, &(&1 + total))
           |> trim_cache()
 
         {:noreply, [], state}
@@ -230,19 +231,16 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
 
   def lsn_to_position(lsn), do: Lsn.to_integer(lsn)
 
+  # Drop all transactions from the cache whose position is less than the last transaction's
+  # position minus in-memory WAL window size.
   @spec trim_cache(state()) :: state()
-  defp trim_cache(%{current_cache_count: current, max_cache_count: max} = state)
-       when current <= max,
-       do: state
-
   defp trim_cache(state) do
-    to_trim = state.current_cache_count - state.max_cache_count
+    first_in_window_pos = state.last_seen_wal_pos - state.wal_window_size
 
-    state.table
-    # `match/3` works here because it's an ordered set, which guarantees traversal from the beginning
-    |> ETS.Set.match({:"$1", :_}, to_trim)
-    |> Enum.each(fn [key] -> ETS.Set.delete!(state.table, key) end)
+    ETS.Set.select_delete!(state.table, [
+      {{:"$1", :_}, [{:<, :"$1", first_in_window_pos}], [:"$1"]}
+    ])
 
-    Map.update!(state, :current_cache_count, &(&1 - to_trim))
+    %{state | current_tx_count: ETS.Set.info!(state.table, :size)}
   end
 end

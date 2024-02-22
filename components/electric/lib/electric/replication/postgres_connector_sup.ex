@@ -76,6 +76,7 @@ defmodule Electric.Replication.PostgresConnectorSup do
     # Uses a globally registered name
     cached_wal_spec =
       {Electric.Postgres.CachedWal.EtsBacked,
+       wal_window_size: Connectors.get_wal_window_opts(connector_config).in_memory_size,
        subscribe_to: [{Postgres.MigrationConsumer.name(origin), []}]}
 
     ###

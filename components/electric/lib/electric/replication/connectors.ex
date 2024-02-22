@@ -4,6 +4,7 @@ defmodule Electric.Replication.Connectors do
   @type origin() :: binary()
 
   @type connection_config() :: :epgsql.connect_opts()
+
   @type electric_connection_opt() ::
           {:host, binary()} | {:port, pos_integer()} | {:dbname, binary()}
   @type electric_connection_opts() :: [electric_connection_opt()]
@@ -11,10 +12,24 @@ defmodule Electric.Replication.Connectors do
           {:slot, binary()} | {:electric_connection, electric_connection_opts()}
   @type replication_config() :: [replication_config_opt(), ...]
 
+  @type proxy_config_opt() ::
+          {:listen, list()}
+          | {:use_http_tunnel?, boolean()}
+          | {:password, binary()}
+          | {:log_level, atom}
+  @type proxy_config() :: [proxy_config_opt(), ...]
+
+  @type wal_window_config_opt() ::
+          {:resumable_size, pos_integer()}
+          | {:in_memory_size, pos_integer()}
+  @type wal_window_config() :: [wal_window_config_opt(), ...]
+
   @type config_opt() ::
-          {:connection, connection_config()}
+          {:origin, origin()}
+          | {:connection, connection_config()}
           | {:replication, replication_config()}
-          | {:origin, origin()}
+          | {:proxy, proxy_config()}
+          | {:wal_window, wal_window_config()}
 
   @type config() :: [config_opt(), ...]
 
@@ -25,6 +40,7 @@ defmodule Electric.Replication.Connectors do
           electric_connection: %{host: String.t(), port: pos_integer, dbname: String.t()},
           opts: Keyword.t()
         }
+
   @type connection_opts() :: %{
           host: charlist(),
           port: :inet.port_number(),
@@ -44,6 +60,11 @@ defmodule Electric.Replication.Connectors do
           use_http_tunnel?: boolean,
           password: String.t(),
           log_level: Logger.level()
+        }
+
+  @type wal_window_opts() :: %{
+          resumable_size: pos_integer(),
+          in_memory_size: pos_integer()
         }
 
   alias Electric.Postgres.Extension
@@ -121,6 +142,13 @@ defmodule Electric.Replication.Connectors do
   def get_proxy_opts(config) do
     config
     |> Keyword.fetch!(:proxy)
+    |> Map.new()
+  end
+
+  @spec get_wal_window_opts(config()) :: wal_window_opts()
+  def get_wal_window_opts(config) do
+    config
+    |> Keyword.fetch!(:wal_window)
     |> Map.new()
   end
 
