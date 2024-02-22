@@ -5,7 +5,6 @@ defmodule Electric.Replication.PostgresConnectorSup do
   alias Electric.Replication.Connectors
   alias Electric.Replication.Postgres
   alias Electric.Postgres.Extension.SchemaCache
-  alias Electric.Postgres.{CachedWal, Proxy}
   alias Electric.Replication.SatelliteCollectorProducer
 
   @spec start_link(Connectors.config()) :: :ignore | {:error, any} | {:ok, pid}
@@ -24,47 +23,77 @@ defmodule Electric.Replication.PostgresConnectorSup do
     name = name(origin)
     Electric.reg(name)
 
-    postgres_producer = Postgres.LogicalReplicationProducer.get_name(origin)
-    postgres_producer_consumer = Postgres.MigrationConsumer.name(origin)
     write_to_pg_mode = Connectors.write_to_pg_mode(connector_config)
 
-    migration_consumer_opts = [
-      producer: postgres_producer,
+    ###
+
+    pool_module = Electric.Postgres.ConnectionPool
+    start_args = [connector_config, [name: pool_module]]
+    connection_pool_spec = %{id: pool_module, start: {pool_module, :start_link, start_args}}
+
+    ###
+
+    schema_cache_spec = {SchemaCache, connector_config}
+
+    ###
+
+    opts = [name: SatelliteCollectorProducer.name(), write_to_pg_mode: write_to_pg_mode]
+    satellite_collector_producer_spec = {SatelliteCollectorProducer, opts}
+
+    ###
+
+    logical_replication_producer_spec = {Postgres.LogicalReplicationProducer, connector_config}
+
+    ###
+
+    opts = [
+      producer: Postgres.LogicalReplicationProducer.name(origin),
       refresh_subscription: write_to_pg_mode == :logical_replication
     ]
 
-    writer_config = [conn_config: connector_config, producer: SatelliteCollectorProducer.name()]
+    migration_consumer_spec =
+      %{
+        id: Postgres.MigrationConsumer,
+        start: {Postgres.MigrationConsumer, :start_link, [connector_config, opts]}
+      }
 
-    pool_module = Electric.Postgres.ConnectionPool
+    ###
+
+    pg_writer_config = [
+      conn_config: connector_config,
+      producer: SatelliteCollectorProducer.name()
+    ]
+
+    pg_writer_spec =
+      if write_to_pg_mode == :logical_replication do
+        {Postgres.SlotServer, pg_writer_config}
+      else
+        {Postgres.Writer, pg_writer_config}
+      end
+
+    ###
+
+    # Uses a globally registered name
+    cached_wal_spec =
+      {Electric.Postgres.CachedWal.EtsBacked,
+       subscribe_to: [{Postgres.MigrationConsumer.name(origin), []}]}
+
+    ###
+
+    migrations_proxy_spec = {Electric.Postgres.Proxy, connector_config: connector_config}
 
     children = [
-      %{
-        id: pool_module,
-        start: {pool_module, :start_link, [connector_config, [name: pool_module]]}
-      },
-      %{
-        id: :postgres_schema_cache,
-        start: {SchemaCache, :start_link, [connector_config]}
-      },
-      {SatelliteCollectorProducer,
-       name: SatelliteCollectorProducer.name(), write_to_pg_mode: write_to_pg_mode},
-      %{
-        id: :postgres_producer,
-        start: {Postgres.LogicalReplicationProducer, :start_link, [connector_config]}
-      },
-      %{
-        id: :postgres_migration_consumer,
-        start:
-          {Postgres.MigrationConsumer, :start_link, [connector_config, migration_consumer_opts]}
-      },
-      if write_to_pg_mode == :logical_replication do
-        {Postgres.SlotServer, writer_config}
-      else
-        {Postgres.Writer, writer_config}
-      end,
-      # Uses a globally registered name
-      {CachedWal.EtsBacked, subscribe_to: [{postgres_producer_consumer, []}]},
-      {Proxy, connector_config: connector_config}
+      connection_pool_spec,
+      schema_cache_spec,
+      satellite_collector_producer_spec,
+      logical_replication_producer_spec,
+      migration_consumer_spec,
+      pg_writer_spec,
+      # TODO: add a new process here that will process replication messages and
+      # decide when to drop cached wal window and advance the primary replication slot
+      # to keep the resumable wal window in check.
+      cached_wal_spec,
+      migrations_proxy_spec
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

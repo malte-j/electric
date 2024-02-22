@@ -71,13 +71,9 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
     GenStage.start_link(__MODULE__, connector_config)
   end
 
-  @spec get_name(Connectors.origin()) :: Electric.reg_name()
-  def get_name(name) do
-    {:via, :gproc, name(name)}
-  end
-
-  defp name(name) do
-    {:n, :l, {__MODULE__, name}}
+  @spec name(Connectors.origin()) :: Electric.reg_name()
+  def name(origin) do
+    Electric.name(__MODULE__, origin)
   end
 
   @impl true
@@ -87,7 +83,8 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
     repl_opts = Connectors.get_replication_opts(connector_config)
     wal_window_opts = Connectors.get_wal_window_opts(connector_config)
 
-    :gproc.reg(name(origin))
+    name = name(origin)
+    Electric.reg(name)
 
     publication = repl_opts.publication
     main_slot = repl_opts.slot
