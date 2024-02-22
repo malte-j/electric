@@ -5,7 +5,7 @@ defmodule Electric.Replication.Postgres.Client do
   Uses `:epgsql` for it's `start_replication` function. Note that epgsql
   doesn't support connecting via a unix socket.
   """
-  alias Electric.Postgres.Extension
+  alias Electric.Postgres.{Extension, Lsn}
   alias Electric.Replication.Connectors
 
   require Logger
@@ -240,10 +240,9 @@ defmodule Electric.Replication.Postgres.Client do
 
   Returns `:ok` on success.
   """
-  def acknowledge_lsn(conn, %{segment: segment, offset: offset}) do
-    <<decimal_lsn::integer-64>> = <<segment::integer-32, offset::integer-32>>
-
-    :epgsql.standby_status_update(conn, decimal_lsn, decimal_lsn)
+  def acknowledge_lsn(conn, lsn) do
+    wal_offset = Lsn.to_integer(lsn)
+    :epgsql.standby_status_update(conn, wal_offset, wal_offset)
   end
 
   @relkind %{table: ["r"], index: ["i"], view: ["v", "m"]}
