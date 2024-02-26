@@ -125,7 +125,7 @@ defmodule Electric.Postgres.Extension.SchemaCacheTest do
       {"20230620162106", [@create_b, @index_b]}
     ]
 
-    {:ok, _pid} = start_supervised({MockVersion, parent: self()})
+    start_link_supervised!({MockVersion, parent: self()})
 
     {:ok, origin: "pg", migrations: migrations, versions: Enum.map(migrations, &elem(&1, 0))}
   end
@@ -137,7 +137,7 @@ defmodule Electric.Postgres.Extension.SchemaCacheTest do
       {:ok, [], []} = :epgsql.squery(conn, sql)
     end
 
-    {:ok, producer} = start_supervised(MockProducer)
+    producer = start_link_supervised!(MockProducer)
 
     conn_config = [
       origin: cxt.origin,
@@ -146,17 +146,15 @@ defmodule Electric.Postgres.Extension.SchemaCacheTest do
       replication: []
     ]
 
-    {:ok, _pid} =
-      start_supervised({Extension.SchemaCache, {conn_config, []}})
+    start_link_supervised!({Extension.SchemaCache, {conn_config, []}})
 
-    {:ok, migration_consumer} =
-      start_supervised(
+    migration_consumer =
+      start_link_supervised!(
         {Postgres.MigrationConsumer,
          {conn_config, [producer: producer, refresh_subscription: false]}}
       )
 
-    {:ok, _pid} =
-      start_supervised({MockConsumer, parent: self(), producer: migration_consumer})
+    start_link_supervised!({MockConsumer, parent: self(), producer: migration_consumer})
 
     txs =
       for {version, stmts} <- cxt.migrations do
