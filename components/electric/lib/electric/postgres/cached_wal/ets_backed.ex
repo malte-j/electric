@@ -46,6 +46,7 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
 
   @impl Api
   def lsn_in_cached_window?(client_wal_pos) do
+    # TODO
     case :ets.first(@ets_table_name) do
       :"$end_of_table" ->
         false
