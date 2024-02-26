@@ -321,14 +321,19 @@ defmodule Electric.Satellite.WebsocketServer do
 
   defp handle_producer_msg(from, events, %State{} = state)
        when is_out_rep_active(state) do
-    GenStage.ask(from, 1)
+    if state.out_rep.ask_for_more_demand? do
+      GenStage.ask(from, 1)
+    end
 
     push(send_events_and_maybe_pause(events, state))
   end
 
   defp handle_producer_msg(from, events, %State{} = state)
        when is_out_rep_paused(state) do
-    GenStage.ask(from, 1)
+    if state.out_rep.ask_for_more_demand? do
+      GenStage.ask(from, 1)
+    end
+
     {:ok, %{state | out_rep: OutRep.add_events_to_buffer(state.out_rep, events)}}
   end
 

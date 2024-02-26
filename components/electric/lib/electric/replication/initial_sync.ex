@@ -155,6 +155,9 @@ defmodule Electric.Replication.InitialSync do
     end)
   end
 
+  def fetch_and_emit_wal_records(origin, lsn, send_events_fn) do
+  end
+
   defp perform_magic_write(opts, subscription_id) do
     opts
     |> Connectors.get_connection_opts()
