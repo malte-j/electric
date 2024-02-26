@@ -17,11 +17,14 @@ defmodule Electric.Postgres.Extension.SchemaLoader.Epgsql do
 
   @impl true
   def connect(conn_config, opts) do
+    # IO.puts("connect(#{inspect(conn_config)}, #{inspect(opts)})")
     {:ok, {__MODULE__, conn_config, opts}}
   end
 
   defp checkout!(state, fun) do
     {__MODULE__, conn_config, _opts} = state
+
+    # IO.puts("checkout!(#{inspect(state)}, #{inspect(fun)})")
 
     # NOTE: use `__connection__: conn` in tests to pass an existing connection
     case Keyword.fetch(conn_config, :__connection__) do
@@ -116,7 +119,10 @@ defmodule Electric.Postgres.Extension.SchemaLoader.Epgsql do
 
   @impl true
   def table_electrified?(pool, {schema, name}) do
+    # IO.puts("outside table_electrified?(#{inspect(schema)}, #{inspect(name)})")
+
     checkout!(pool, fn conn ->
+      # IO.puts("inside table_electrified?(#{inspect(schema)}, #{inspect(name)})")
       Extension.electrified?(conn, schema, name)
     end)
   end
