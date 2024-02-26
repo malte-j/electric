@@ -18,7 +18,8 @@ defmodule Electric.Replication.PostgresConnectorMng do
       :write_to_pg_mode,
       :status,
       :backoff,
-      :pg_connector_sup_monitor
+      :pg_connector_sup_monitor,
+      :conn
     ]
 
     @type status :: :initialization | :establishing_repl_conn | :subscribing | :ready
@@ -40,7 +41,8 @@ defmodule Electric.Replication.PostgresConnectorMng do
             write_to_pg_mode: Electric.write_to_pg_mode(),
             status: status,
             backoff: term,
-            pg_connector_sup_monitor: reference | nil
+            pg_connector_sup_monitor: reference | nil,
+            conn: CLient.connection()
           }
   end
 
@@ -86,7 +88,6 @@ defmodule Electric.Replication.PostgresConnectorMng do
       reset_state(%State{
         origin: origin,
         connector_config: connector_config,
-        conn_opts: Connectors.get_connection_opts(connector_config),
         repl_opts: Connectors.get_replication_opts(connector_config),
         write_to_pg_mode: Connectors.write_to_pg_mode(connector_config)
       })
@@ -101,6 +102,16 @@ defmodule Electric.Replication.PostgresConnectorMng do
         status: :initialization,
         pg_connector_sup_monitor: nil
     }
+    |> connect()
+  end
+
+  defp connect(%State{conn: conn} = state) do
+    if conn, do: Client.close(conn)
+
+    conn_opts = Connectors.get_connection_opts(state.connector_config)
+    {:ok, conn} = Client.connect(conn_opts)
+
+    %State{state | conn_opts: conn_opts, conn: conn}
   end
 
   @impl GenServer
@@ -203,11 +214,8 @@ defmodule Electric.Replication.PostgresConnectorMng do
     end
   end
 
-  defp start_subscription(%State{origin: origin, conn_opts: conn_opts, repl_opts: repl_opts}) do
-    Client.with_conn(conn_opts, fn conn ->
-      Client.start_subscription(conn, repl_opts.subscription)
-    end)
-    |> case do
+  defp start_subscription(%State{origin: origin, conn: conn, repl_opts: repl_opts}) do
+    case Client.start_subscription(conn, repl_opts.subscription) do
       :ok ->
         Logger.notice("subscription started for #{origin}")
         :ok
@@ -218,11 +226,8 @@ defmodule Electric.Replication.PostgresConnectorMng do
     end
   end
 
-  defp stop_subscription(%State{origin: origin, conn_opts: conn_opts, repl_opts: repl_opts}) do
-    Client.with_conn(conn_opts, fn conn ->
-      Client.stop_subscription(conn, repl_opts.subscription)
-    end)
-    |> case do
+  defp stop_subscription(%State{origin: origin, conn: conn, repl_opts: repl_opts}) do
+    case Client.stop_subscription(conn, repl_opts.subscription) do
       :ok ->
         Logger.notice("subscription stopped for #{origin}")
         :ok
@@ -233,22 +238,20 @@ defmodule Electric.Replication.PostgresConnectorMng do
     end
   end
 
-  def initialize_postgres(%State{origin: origin, conn_opts: conn_opts} = state) do
+  def initialize_postgres(%State{origin: origin, conn_opts: conn_opts, conn: conn} = state) do
     Logger.debug(
       "Attempting to initialize #{origin}: #{conn_opts.username}@#{conn_opts.host}:#{conn_opts.port}"
     )
 
-    Client.with_conn(conn_opts, fn conn ->
-      with {:ok, versions} <- Extension.migrate(conn),
-           :ok <- maybe_create_subscription(conn, state.write_to_pg_mode, state.repl_opts),
-           :ok <- OidDatabase.update_oids(conn) do
-        Logger.info(
-          "Successfully initialized origin #{origin} at extension version #{List.last(versions)}"
-        )
+    with {:ok, versions} <- Extension.migrate(conn),
+         :ok <- maybe_create_subscription(conn, state.write_to_pg_mode, state.repl_opts),
+         :ok <- OidDatabase.update_oids(conn) do
+      Logger.info(
+        "Successfully initialized origin #{origin} at extension version #{List.last(versions)}"
+      )
 
-        :ok
-      end
-    end)
+      :ok
+    end
   end
 
   defp maybe_create_subscription(conn, :logical_replication, repl_opts) do
@@ -352,13 +355,8 @@ defmodule Electric.Replication.PostgresConnectorMng do
       "Falling back to trying an unencrypted connection to Postgres, since DATABASE_REQUIRE_SSL=false."
     )
 
-    connector_config = put_in(state.connector_config, [:connection, :ssl], false)
-
-    %State{
-      state
-      | connector_config: connector_config,
-        conn_opts: Connectors.get_connection_opts(connector_config)
-    }
+    %State{state | connector_config: put_in(state.connector_config, [:connection, :ssl], false)}
+    |> connect()
   end
 
   defp extra_error_description(:invalid_authorization_specification) do
