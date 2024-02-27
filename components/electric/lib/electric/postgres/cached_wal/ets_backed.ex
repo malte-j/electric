@@ -138,14 +138,12 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
     {:reply, {:ok, ref}, [], state}
   end
 
-  @impl GenStage
   def handle_call({:cancel_notification, ref}, _, state) do
     state = Map.update!(state, :notification_requests, &Map.delete(&1, ref))
 
     {:reply, :ok, [], state}
   end
 
-  @impl GenStage
   def handle_call(:telemetry_stats, _from, state) do
     oldest_timestamp =
       if tx = lookup_oldest_transaction(state.table) do
@@ -160,6 +158,11 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
     }
 
     {:reply, stats, [], state}
+  end
+
+  def handle_call({:insert_transactions, txs}, _from, state) do
+    {:noreply, [], state} = handle_events(txs, nil, state)
+    {:reply, :ok, state}
   end
 
   @impl GenStage
