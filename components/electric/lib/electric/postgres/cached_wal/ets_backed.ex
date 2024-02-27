@@ -51,21 +51,12 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
   end
 
   @impl Api
-  def lsn_in_cached_window?(origin, client_wal_pos) do
+  def client_pos_in_cached_window?(origin, client_wal_pos) do
     table = ets_table_name(origin)
 
     case :ets.first(table) do
-      :"$end_of_table" ->
-        false
-
-      first_position ->
-        case :ets.last(table) do
-          :"$end_of_table" ->
-            false
-
-          last_position ->
-            first_position <= client_wal_pos and client_wal_pos <= last_position
-        end
+      :"$end_of_table" -> false
+      first_position -> first_position <= client_wal_pos
     end
   end
 

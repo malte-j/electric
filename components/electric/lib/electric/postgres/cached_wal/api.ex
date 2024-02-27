@@ -24,8 +24,8 @@ defmodule Electric.Postgres.CachedWal.Api do
           cache_memory_total: non_neg_integer()
         }
 
-  @callback lsn_in_cached_window?(Connectors.origin(), wal_pos) :: boolean
-  @callback get_current_position(Connectors.origin()) :: wal_pos | nil
+  @callback client_pos_in_cached_window?(Connectors.origin(), wal_pos()) :: boolean
+  @callback get_current_position(Connectors.origin()) :: wal_pos() | nil
   @callback next_segment(Connectors.origin(), wal_pos()) ::
               {:ok, segment(), new_position :: wal_pos()} | :latest | {:error, term()}
   @callback request_notification(Connectors.origin(), wal_pos()) ::
@@ -46,9 +46,9 @@ defmodule Electric.Postgres.CachedWal.Api do
   This checks needs to be done for every client. If their LSN is outside of the caching window, we won't be able to
   guarantee data consistency via the replication stream alone.
   """
-  @spec lsn_in_cached_window?(module(), Connectors.origin(), wal_pos) :: boolean
-  def lsn_in_cached_window?(module \\ default_module(), origin, lsn) do
-    module.lsn_in_cached_window?(origin, lsn)
+  @spec client_pos_in_cached_window?(module(), Connectors.origin(), wal_pos()) :: boolean
+  def client_pos_in_cached_window?(module \\ default_module(), origin, wal_pos) do
+    module.client_pos_in_cached_window?(origin, wal_pos)
   end
 
   @doc """

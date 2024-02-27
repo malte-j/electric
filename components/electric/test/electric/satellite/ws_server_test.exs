@@ -6,6 +6,7 @@ defmodule Electric.Satellite.WebsocketServerTest do
   import ElectricTest.SetupHelpers
   import ElectricTest.SatelliteHelpers
 
+  alias Electric.Postgres.Lsn
   alias Electric.Replication.SatelliteConnector
   alias Electric.Postgres.CachedWal.Producer
 
@@ -78,9 +79,15 @@ defmodule Electric.Satellite.WebsocketServerTest do
       Electric.Postgres.CachedWal.Api,
       [:passthrough],
       get_current_position: fn _ -> @current_wal_pos end,
-      lsn_in_cached_window?: fn _origin, pos when is_integer(pos) ->
+      client_pos_in_cached_window?: fn _origin, pos when is_integer(pos) ->
         pos > @current_wal_pos
       end
+    },
+    {
+      Electric.Replication.Postgres.LogicalReplicationProducer,
+      [:passthrough],
+      current_lsn: fn "fake_origin" -> Lsn.from_integer(1_000_000) end,
+      main_slot_lsn: fn "fake_origin" -> Lsn.from_integer(0) end
     }
   ]) do
     {:ok, %{}}
@@ -588,8 +595,7 @@ defmodule Electric.Satellite.WebsocketServerTest do
 
     @tag subscription_data_fun: {:mock_data_function, insertion_point: 4}
     @tag with_migrations: [@test_migration]
-    test "unsubscribing works even on not-yet-fulfilled subscriptions",
-         ctx do
+    test "unsubscribing works even on not-yet-fulfilled subscriptions", ctx do
       with_connect([port: ctx.port, auth: ctx, id: ctx.client_id], fn conn ->
         # Skip initial sync
         lsn = to_string(@current_wal_pos + 1)
