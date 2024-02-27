@@ -66,6 +66,8 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
           }
   end
 
+  @main_slot_lsn_key :main_slot_lsn
+
   @spec start_link(Connectors.config()) :: :ignore | {:error, any} | {:ok, pid}
   def start_link(connector_config) do
     GenStage.start_link(__MODULE__, connector_config)
@@ -74,6 +76,11 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
   @spec name(Connectors.origin()) :: Electric.reg_name()
   def name(origin) do
     Electric.name(__MODULE__, origin)
+  end
+
+  @spec main_slot_lsn(Connectors.origin()) :: Lsn.t()
+  def main_slot_lsn(origin) do
+    :ets.lookup_element(ets_table_name(origin), @main_slot_lsn_key, 2)
   end
 
   @impl true
@@ -85,6 +92,8 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
 
     name = name(origin)
     Electric.reg(name)
+
+    :ets.new(ets_table_name(origin), [:protected, :named_table, read_concurrency: true])
 
     publication = repl_opts.publication
     main_slot = repl_opts.slot
@@ -121,13 +130,22 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
          origin: origin,
          span: span,
          main_slot: main_slot,
-         main_slot_lsn: main_slot_lsn,
          resumable_wal_window: wal_window_opts.resumable_size
-       }}
+       }
+       |> set_main_slot_lsn(main_slot_lsn)}
     end
   end
 
-  # The idea is to fill in the available in-memory cache with WAL records.
+  defp ets_table_name(origin) do
+    String.to_atom(inspect(__MODULE__) <> ":" <> origin)
+  end
+
+  defp set_main_slot_lsn(state, lsn) do
+    :ets.insert(ets_table_name(state.origin), {@main_slot_lsn_key, lsn})
+    %{state | main_slot_lsn: lsn}
+  end
+
+  # The idea is to fill the available in-memory cache with WAL records.
   #
   # TODO(optimization): fetch the last ack'ed LSN from acknowledged_client_lsns and use it to
   # start the replication connection.
@@ -361,7 +379,7 @@ defmodule Electric.Replication.Postgres.LogicalReplicationProducer do
           &Client.advance_replication_slot(&1, state.main_slot, min_in_window_lsn)
         )
 
-      %{state | main_slot_lsn: min_in_window_lsn}
+      set_main_slot_lsn(state, min_in_window_lsn)
     else
       state
     end

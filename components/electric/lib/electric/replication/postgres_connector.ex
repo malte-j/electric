@@ -3,6 +3,7 @@ defmodule Electric.Replication.PostgresConnector do
 
   require Logger
 
+  alias Electric.Postgres.Lsn
   alias Electric.Replication.Connectors
   alias Electric.Replication.PostgresConnectorMng
   alias Electric.Replication.PostgresConnectorSup
@@ -71,6 +72,24 @@ defmodule Electric.Replication.PostgresConnector do
   def connector_config(origin) do
     PostgresConnectorMng.connector_config(origin)
   end
+
+  ###
+  # WAL window
+  ###
+
+  def lsn_in_cached_window?(_origin, lsn) do
+    Electric.Postgres.CachedWal.Api.lsn_in_cached_window?(lsn)
+  end
+
+  def lsn_in_resumable_window?(origin, lsn) do
+    Lsn.compare(lsn, main_slot_lsn(origin)) != :lt
+  end
+
+  defp main_slot_lsn(origin) do
+    Electric.Replication.Postgres.LogicalReplicationProducer.main_slot_lsn(origin)
+  end
+
+  ###
 
   defp log_connector_sup_startup_error({:ok, _sup_pid} = ok, _connector_config), do: ok
 
