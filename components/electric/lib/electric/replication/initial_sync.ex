@@ -9,6 +9,7 @@ defmodule Electric.Replication.InitialSync do
   alias Electric.Telemetry.Metrics
   alias Electric.Replication.Shapes
   alias Electric.Postgres.{CachedWal, Extension}
+  # alias Electric.Replication.PostgresConnector
   alias Electric.Replication.Changes.{NewRecord, Transaction}
   alias Electric.Replication.Connectors
   alias Electric.Replication.Postgres.Client
@@ -153,6 +154,22 @@ defmodule Electric.Replication.InitialSync do
         end
       )
     end)
+  end
+
+  # The fetching should stop at the oldest LSN that's already cached in memory.
+  #
+  # Come up with a way to ensure the cached LSN remains in memory until the client's request
+  # is fulfilled.
+  def fetch_and_emit_transactions_from_wal(_origin, _lsn, _send_events_fn) do
+    # slot_name = ""
+
+    # origin
+    # |> PostgresConnector.connector_config()
+    # |> Connectors.get_connection_opts()
+    # |> Client.with_conn(fn conn ->
+    #   :epgsql.squery(conn, "SELECT pg_logical_slot_peek_changes(#{slot_name})")
+    # end)
+    :ok
   end
 
   defp perform_magic_write(opts, subscription_id) do
