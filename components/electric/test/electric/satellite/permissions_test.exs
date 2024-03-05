@@ -38,7 +38,7 @@ defmodule Electric.Satellite.PermissionsTest do
          "create table workspaces (id uuid primary key)",
          "create table projects (id uuid primary key, workspace_id uuid not null references workspaces (id))",
          "create table issues (id uuid primary key, project_id uuid not null references projects (id))",
-         "create table comments (id uuid primary key, issue_id uuid not null references issues (id))",
+         "create table comments (id uuid primary key, issue_id uuid not null references issues (id), comment text)",
          "create table reactions (id uuid primary key, comment_id uuid not null references comments (id))",
          "create table users (id uuid primary key, role text not null default 'normie')",
          "create table teams (id uuid primary key)",
@@ -268,7 +268,42 @@ defmodule Electric.Satellite.PermissionsTest do
       query = Sqlite.table_triggers(perms, cxt.schema_version, @comments)
       IO.puts(query)
       :ok = Exqlite.Sqlite3.execute(cxt.conn, query)
-      dbg(query)
+
+      assert :ok =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "insert into comments (id, issue_id) values ('d9a01c82-94d9-42fd-b43b-296f096db00b', 'i3')"
+               )
+
+      assert :ok =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "update comments set comment = 'updated' where id = 'd9a01c82-94d9-42fd-b43b-296f096db00b'"
+               )
+
+      assert :ok =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "delete from comments where id = 'd9a01c82-94d9-42fd-b43b-296f096db00b'"
+               )
+
+      assert {:error, _} =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "insert into comments (id, issue_id) values ('d9a01c82-94d9-42fd-b43b-296f096db00b', 'i1')"
+               )
+
+      assert {:error, _} =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "update comments set comment = 'updated' where id = 'c2'"
+               )
+
+      assert :ok =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "update comments set comment = 'updated' where id = 'c3'"
+               )
     end
   end
 

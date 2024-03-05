@@ -575,37 +575,81 @@ defmodule ElectricTest.PermissionsHelpers do
       # dbg(perms)
       # TODO: if there are no perms on a table, return a global reject trigger
 
+      # [:INSERT, :UPDATE, :DELETE]
       Stream.flat_map([:INSERT, :UPDATE, :DELETE], fn action ->
         %{scoped: scoped, unscoped: unscoped} =
           Map.get(perms.roles, {table, action}, %{scoped: [], unscoped: []})
 
-        Stream.concat([
-          Stream.flat_map(scoped, &scoped_table_trigger(&1, perms, schema, table, action)),
-          Stream.flat_map(unscoped, &unscoped_table_trigger(&1, perms, schema, table, action))
-        ])
+        # if we have an unscoped role in our role grant list for this action (on this table)
+        # then we have permission (if the column list and the where clause match)
+        case_clauses =
+          Enum.concat([
+            Stream.flat_map(unscoped, &unscoped_trigger_test(&1, perms, schema, table, action)),
+            Stream.flat_map(scoped, &scoped_trigger_test(&1, perms, schema, table, action))
+          ])
+          |> Enum.map(&["        WHEN (", &1, ") THEN TRUE"])
+          |> Enum.intersperse("\n")
+
+        case_body =
+          Enum.intersperse(
+            ["    SELECT CASE", case_clauses, "        ELSE FALSE", "    END"],
+            "\n"
+          )
+
+        [
+          IO.iodata_to_binary([
+            """
+            CREATE TRIGGER "#{trigger_name(table, action)}" BEFORE #{action} ON #{t(table)}
+            FOR EACH ROW WHEN NOT (
+            """,
+            case_body,
+            "\n",
+            ") BEGIN\n",
+            "    SELECT RAISE(ROLLBACK, 'does not have matching #{action} permissions on \"#{t(table)}\"');",
+            "\nEND;"
+          ])
+        ]
       end)
-      |> Enum.join("\n")
+      |> Enum.join("\n\n")
     end
 
-    defp scoped_table_trigger(role_grant, perms, schema, table, action) do
-      %{role: role, grant: grant} = role_grant
+    defp unscoped_trigger_test(role_grant, perms, schema, table, action) do
+      # test columns (for update) and where clause (for all)
+      # generally when we have an unscoped role for a grant, then we're good
+      ["SELECT TRUE"]
+    end
+
+    defp scoped_trigger_test(role_grant, perms, schema, table, action) do
+      %{role: %{scope: {root, scope_id}}} = role_grant
+      # test columns (for update) and where clause (for all)
+      {scope_table, where_clause} =
+        case action do
+          :INSERT ->
+            {parent_table, fk_column} = fk_column(schema, root, table) |> dbg
+            {parent_table, "NEW.#{fk_column}"}
+
+          :UPDATE ->
+            {table, "OLD.id"}
+
+          :DELETE ->
+            {table, "OLD.id"}
+        end
+
+      scope_query = get_scope_query(schema, root, scope_table, where_clause)
 
       [
-        """
-        CREATE TRIGGER "#{trigger_name(role_grant, action)}" BEFORE #{action} ON #{t(table)}
-        FOR EACH ROW BEGIN SELECT 1; END;
-        """
+        "SELECT '#{scope_id}' = (#{scope_query})"
       ]
     end
 
-    defp unscoped_table_trigger(role_grant, perms, schema, table, action) do
-      []
+    defp trigger_name(table, action) do
+      "__electric_perms_#{t(table)}_#{action}"
     end
 
-    defp trigger_name(role_grant, action) do
-      dbg(role_grant)
-
-      "__electric_perms_#{t(role_grant.grant.table)}_#{action}_#{role_grant.role.assign_id}_#{Enum.join(role_grant.role.id, "_")}"
+    defp fk_column(schema, root, table) do
+      fk_graph = SchemaLoader.Version.fk_graph(schema)
+      [_, parent | _rest] = Graph.get_shortest_path(fk_graph, table, root)
+      {parent, fk(parent)}
     end
   end
 end
