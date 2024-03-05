@@ -71,7 +71,8 @@ defmodule Electric.MixProject do
       {:nimble_parsec, "~> 1.4"},
       {:postgrex, "~> 0.17", only: [:test]},
       {:ecto_sql, "~> 3.11", only: [:test]},
-      {:dotenvy, "~> 0.8"}
+      {:dotenvy, "~> 0.8"},
+      {:yaml_elixir, "~> 2.9"}
     ]
   end
 

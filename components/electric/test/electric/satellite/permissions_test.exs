@@ -30,88 +30,89 @@ defmodule Electric.Satellite.PermissionsTest do
   @global_assign ~s[ELECTRIC ASSIGN #{table(@users)}.role TO #{table(@users)}.id]
 
   setup do
+    migrations = [
+      {"01",
+       [
+         "create table regions (id uuid primary key)",
+         "create table offices (id uuid primary key, region_id uuid not null references regions (id))",
+         "create table workspaces (id uuid primary key)",
+         "create table projects (id uuid primary key, workspace_id uuid not null references workspaces (id))",
+         "create table issues (id uuid primary key, project_id uuid not null references projects (id))",
+         "create table comments (id uuid primary key, issue_id uuid not null references issues (id))",
+         "create table reactions (id uuid primary key, comment_id uuid not null references comments (id))",
+         "create table users (id uuid primary key, role text not null default 'normie')",
+         "create table teams (id uuid primary key)",
+         """
+         create table project_memberships (
+            id uuid primary key,
+            user_id uuid not null references users (id),
+            project_id uuid not null references projects (id),
+            project_role text not null
+         )
+         """,
+         """
+         create table team_memberships (
+            id uuid primary key,
+            user_id uuid not null references users (id),
+            team_id uuid not null references teams (id),
+            team_role text not null
+         )
+         """,
+         """
+         create table site_admins (
+            id uuid primary key,
+            user_id uuid not null references users (id),
+            site_role text not null
+         )
+         """,
+         """
+         create table admin_users (
+            id uuid primary key,
+            user_id uuid not null references users (id)
+         )
+         """
+       ]}
+    ]
+
     loader_spec =
-      MockSchemaLoader.backend_spec(
-        migrations: [
-          {"01",
-           [
-             "create table regions (id uuid primary key)",
-             "create table offices (id uuid primary key, region_id uuid not null references regions (id))",
-             "create table workspaces (id uuid primary key)",
-             "create table projects (id uuid primary key, workspace_id uuid not null references workspaces (id))",
-             "create table issues (id uuid primary key, project_id uuid not null references projects (id))",
-             "create table comments (id uuid primary key, issue_id uuid not null references issues (id))",
-             "create table reactions (id uuid primary key, comment_id uuid not null references comments (id))",
-             "create table users (id uuid primary key, role text not null default 'normie')",
-             "create table teams (id uuid primary key)",
-             """
-             create table project_memberships (
-                id uuid primary key,
-                user_id uuid not null references users (id),
-                project_id uuid not null references projects (id),
-                project_role text not null
-             )
-             """,
-             """
-             create table team_memberships (
-                id uuid primary key,
-                user_id uuid not null references users (id),
-                team_id uuid not null references teams (id),
-                team_role text not null
-             )
-             """,
-             """
-             create table site_admins (
-                id uuid primary key,
-                user_id uuid not null references users (id),
-                site_role text not null
-             )
-             """,
-             """
-             create table my_default.admin_users (
-                id uuid primary key,
-                user_id uuid not null references users (id)
-             )
-             """
-           ]}
-        ]
-      )
+      MockSchemaLoader.backend_spec(migrations: migrations)
 
     {:ok, loader} = SchemaLoader.connect(loader_spec, [])
     {:ok, schema_version} = SchemaLoader.load(loader)
 
+    data = [
+      {@regions, "rg1", [{@offices, "o1"}, {@offices, "o2"}]},
+      {@regions, "rg2", [{@offices, "o3"}, {@offices, "o4"}]},
+      {@workspaces, "w1",
+       [
+         {@projects, "p1",
+          [
+            {@issues, "i1",
+             [
+               {@comments, "c1", [{@reactions, "r1"}, {@reactions, "r2"}, {@reactions, "r3"}]},
+               {@comments, "c2", [{@reactions, "r4"}]}
+             ]},
+            {@issues, "i2", [{@comments, "c5"}]},
+            {@project_memberships, "pm1",
+             %{"user_id" => Auth.user_id(), "project_role" => "member"}, []}
+          ]},
+         {@projects, "p2",
+          [
+            {@issues, "i3",
+             [
+               {@comments, "c3", [{@reactions, "r5"}, {@reactions, "r6"}, {@reactions, "r7"}]},
+               {@comments, "c4", [{@reactions, "r8"}]}
+             ]},
+            {@issues, "i4"}
+          ]},
+         {@projects, "p3", [{@issues, "i5", []}]},
+         {@projects, "p4", [{@issues, "i6", []}]}
+       ]}
+    ]
+
     tree =
       Tree.new(
-        [
-          {@regions, "r1", [{@offices, "o1"}, {@offices, "o2"}]},
-          {@regions, "r2", [{@offices, "o3"}, {@offices, "o4"}]},
-          {@workspaces, "w1",
-           [
-             {@projects, "p1",
-              [
-                {@issues, "i1",
-                 [
-                   {@comments, "c1",
-                    [{@reactions, "r1"}, {@reactions, "r2"}, {@reactions, "r3"}]},
-                   {@comments, "c2", [{@reactions, "r4"}]}
-                 ]},
-                {@issues, "i2", [{@comments, "c5"}]},
-                {@project_memberships, "pm1", []}
-              ]},
-             {@projects, "p2",
-              [
-                {@issues, "i3",
-                 [
-                   {@comments, "c3",
-                    [{@reactions, "r5"}, {@reactions, "r6"}, {@reactions, "r7"}]},
-                   {@comments, "c4", [{@reactions, "r8"}]}
-                 ]},
-                {@issues, "i4"}
-              ]},
-             {@projects, "p3", [{@issues, "i5", []}]},
-             {@projects, "p4", [{@issues, "i6", []}]}
-           ]}
-        ],
+        data,
         [
           {@comments, @issues, ["issue_id"]},
           {@issues, @projects, ["project_id"]},
@@ -124,7 +125,151 @@ defmodule Electric.Satellite.PermissionsTest do
 
     {:ok, _} = start_supervised(Perms.Transient)
 
-    {:ok, tree: tree, loader: loader, schema_version: schema_version}
+    {:ok,
+     tree: tree,
+     loader: loader,
+     schema_version: schema_version,
+     migrations: migrations,
+     data: data}
+  end
+
+  test "yaml" do
+    "../../../perms-tests.yaml"
+    |> Path.expand(__DIR__)
+    |> YamlElixir.read_from_file!()
+    |> Map.get("tests", [])
+    |> Enum.map(fn test ->
+      Enum.reduce(~w(assigns grants name roles), %{}, fn key, t ->
+        case key do
+          "assigns" ->
+            Map.put(
+              t,
+              :assigns,
+              Map.fetch!(test, key)
+              |> Enum.map(fn assign ->
+                Map.new(assign, fn {k, v} ->
+                  {k |> String.to_existing_atom(), v}
+                end)
+              end)
+            )
+
+          "roles" ->
+            Map.put(
+              t,
+              :roles,
+              Map.fetch!(test, key)
+              |> Enum.map(fn assign ->
+                Map.new(assign, fn {k, v} ->
+                  {k |> String.to_existing_atom(), v}
+                end)
+              end)
+            )
+
+          "grants" ->
+            Map.put(t, :grants, Map.fetch!(test, key))
+
+          "name" ->
+            Map.put(t, :name, Map.fetch!(test, key))
+        end
+      end)
+    end)
+  end
+
+  defmodule Server do
+    alias ElectricTest.PermissionsHelpers.{
+      Tree
+    }
+
+    def tree(migrations, vertices, fk_edges) do
+      loader_spec = MockSchemaLoader.backend_spec(migrations: migrations)
+
+      {:ok, loader} = SchemaLoader.connect(loader_spec, [])
+      {:ok, schema_version} = SchemaLoader.load(loader)
+
+      {:ok, tree: Tree.new(vertices, fk_edges), loader: loader, schema_version: schema_version}
+    end
+  end
+
+  defmodule Client do
+    def tree(migrations, vertices, fk_edges) do
+      {:ok, conn} = Exqlite.Sqlite3.open(":memory:")
+
+      conn =
+        Enum.reduce(migrations, fn {_version, stmts}, conn ->
+          for stmt <- stmts do
+            :ok = Exqlite.Sqlite3.execute(conn, stmt)
+          end
+
+          conn
+        end)
+
+      loader_spec = MockSchemaLoader.backend_spec(migrations: migrations)
+
+      {:ok, loader} = SchemaLoader.connect(loader_spec, [])
+      {:ok, schema_version} = SchemaLoader.load(loader)
+
+      {:ok, tree: {__MODULE__, {conn, schema_version}}}
+    end
+  end
+
+  describe "sqlite" do
+    alias ElectricTest.PermissionsHelpers.Sqlite
+
+    setup(cxt) do
+      {:ok, conn} = Exqlite.Sqlite3.open(":memory:")
+
+      conn =
+        Enum.reduce(cxt.migrations, conn, fn {_version, stmts}, conn ->
+          for stmt <- stmts do
+            :ok = Exqlite.Sqlite3.execute(conn, stmt)
+          end
+
+          conn
+        end)
+
+      loader_spec = MockSchemaLoader.backend_spec(migrations: cxt.migrations)
+      conn = Sqlite.build_tree(conn, cxt.data)
+      {:ok, loader} = SchemaLoader.connect(loader_spec, [])
+      {:ok, schema_version} = SchemaLoader.load(loader)
+      {:ok, conn: conn}
+    end
+
+    test "get_scope_query/3", cxt do
+      tests = [
+        {@regions, @offices, "o2", "rg1"},
+        {@workspaces, @reactions, "r8", "w1"},
+        {@projects, @reactions, "r8", "p2"},
+        {@issues, @reactions, "r7", "i3"},
+        {@projects, @project_memberships, "pm1", "p1"}
+      ]
+
+      for {root, table, id, scope_id} <- tests do
+        query = Sqlite.get_scope_query(cxt.schema_version, root, table, "'#{id}'")
+
+        {:ok, stmt} = Exqlite.Sqlite3.prepare(cxt.conn, query)
+
+        assert {:row, [^scope_id]} = Exqlite.Sqlite3.step(cxt.conn, stmt)
+      end
+    end
+
+    test "validate permissions", cxt do
+      perms =
+        perms_build(
+          cxt,
+          [
+            ~s[GRANT ALL ON #{table(@comments)} TO (projects, 'editor')],
+            @projects_assign
+          ],
+          [
+            Roles.role("editor", @projects, "p2", "assign-1")
+          ]
+        )
+
+      query = Sqlite.table_triggers(perms, cxt.schema_version, @comments)
+      IO.puts(query)
+      :ok = Exqlite.Sqlite3.execute(cxt.conn, query)
+      dbg(query)
+    end
   end
 
   describe "validate_write/3" do

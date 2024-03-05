@@ -240,11 +240,15 @@ defmodule ElectricTest.PermissionsHelpers do
       graph
     end
 
-    defp build_data_tree({table, id}, {parent, graph}) do
-      build_data_tree({table, id, []}, {parent, graph})
+    defp build_data_tree({table, id, children}, {parent, graph}) when is_list(children) do
+      build_data_tree({table, id, %{}, children}, {parent, graph})
     end
 
-    defp build_data_tree({_table, _id, children} = v, {parent, graph}) do
+    defp build_data_tree({table, id}, {parent, graph}) do
+      build_data_tree({table, id, %{}, []}, {parent, graph})
+    end
+
+    defp build_data_tree({_table, _id, _attrs, children} = v, {parent, graph}) do
       graph = Graph.add_edge(graph, v(v), v(parent))
 
       {_v, graph} = Enum.reduce(children, {v, graph}, &build_data_tree/2)
@@ -253,7 +257,7 @@ defmodule ElectricTest.PermissionsHelpers do
 
     defp v(@root), do: @root
 
-    defp v({table, id, _children}) do
+    defp v({table, id, _attrs, _children}) do
       {table, [id]}
     end
 
@@ -463,6 +467,145 @@ defmodule ElectricTest.PermissionsHelpers do
 
     def encode(struct) do
       Protox.encode!(struct) |> IO.iodata_to_binary()
+    end
+  end
+
+  defmodule Sqlite do
+    alias Electric.Postgres.Extension.SchemaLoader
+
+    def build_tree(conn, data) do
+      {conn, _} = Enum.reduce(data, {conn, nil}, &build_data_tree/2)
+      conn
+    end
+
+    defp build_data_tree({table, id, children}, {conn, parent}) when is_list(children) do
+      build_data_tree({table, id, %{}, children}, {conn, parent})
+    end
+
+    defp build_data_tree({table, id}, {conn, parent}) do
+      build_data_tree({table, id, %{}, []}, {conn, parent})
+    end
+
+    defp build_data_tree({_table, id, attrs, children} = v, {conn, parent}) do
+      init =
+        case parent do
+          nil ->
+            {
+              ["id"],
+              ["'#{id}'"]
+            }
+
+          {_table, _id, _attrs, _children} = parent ->
+            {
+              ["id", fk(parent)],
+              ["'#{id}'", "'#{id(parent)}'"]
+            }
+        end
+
+      {cols, vals} =
+        Enum.reduce(attrs, init, fn {k, v}, {ks, vs} ->
+          {[k | ks], ["'#{v}'" | vs]}
+        end)
+
+      query = "INSERT INTO #{t(v)} (#{Enum.join(cols, ",")}) VALUES (#{Enum.join(vals, ",")})"
+
+      :ok = Exqlite.Sqlite3.execute(conn, query)
+
+      {conn, _} = Enum.reduce(children, {conn, v}, &build_data_tree/2)
+      {conn, parent}
+    end
+
+    defp t({{_, table}, _id, _attrs, _children}) do
+      table
+    end
+
+    defp t({_schema, table}) do
+      table
+    end
+
+    defp fk({{_, table}, _id, _attrs, _children}) do
+      "#{String.trim_trailing(table, "s")}_id"
+    end
+
+    defp fk({_, table}) do
+      "#{String.trim_trailing(table, "s")}_id"
+    end
+
+    # TODO: this needs to be a real pk col lookup
+    # also needs to support compound pks
+    defp pk({_, table}), do: "#{table}.id"
+
+    defp id({_table, id, _attrs, _}), do: id
+
+    # can't use `WITH` in triggers
+    def get_scope_query(schema, root, table, where_clause) do
+      fk_graph = SchemaLoader.Version.fk_graph(schema)
+
+      query = [
+        "SELECT ",
+        pk(root),
+        " FROM ",
+        t(root)
+      ]
+
+      joins =
+        Graph.get_shortest_path(fk_graph, table, root)
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.map(fn [a, b] ->
+          [%{label: fk_columns}] = Graph.edges(fk_graph, a, b)
+          {a, b, fk_columns}
+          [" LEFT JOIN ", t(a), " ON ", t(a), ".", fk(b), " = ", pk(b)]
+        end)
+
+      # |> Enum.reverse()
+
+      where = [
+        " WHERE ",
+        pk(table),
+        " = ",
+        where_clause,
+        " LIMIT 1"
+      ]
+
+      [query, joins, where]
+      |> IO.iodata_to_binary()
+    end
+
+    def table_triggers(perms, schema, table) do
+      # dbg(perms)
+      # TODO: if there are no perms on a table, return a global reject trigger
+
+      Stream.flat_map([:INSERT, :UPDATE, :DELETE], fn action ->
+        %{scoped: scoped, unscoped: unscoped} =
+          Map.get(perms.roles, {table, action}, %{scoped: [], unscoped: []})
+
+        Stream.concat([
+          Stream.flat_map(scoped, &scoped_table_trigger(&1, perms, schema, table, action)),
+          Stream.flat_map(unscoped, &unscoped_table_trigger(&1, perms, schema, table, action))
+        ])
+      end)
+      |> Enum.join("\n")
+    end
+
+    defp scoped_table_trigger(role_grant, perms, schema, table, action) do
+      %{role: role, grant: grant} = role_grant
+
+      [
+        """
+        CREATE TRIGGER "#{trigger_name(role_grant, action)}" BEFORE #{action} ON #{t(table)}
+        FOR EACH ROW BEGIN SELECT 1; END;
+        """
+      ]
+    end
+
+    defp unscoped_table_trigger(role_grant, perms, schema, table, action) do
+      []
+    end
+
+    defp trigger_name(role_grant, action) do
+      dbg(role_grant)
+
+      "__electric_perms_#{t(role_grant.grant.table)}_#{action}_#{role_grant.role.assign_id}_#{Enum.join(role_grant.role.id, "_")}"
     end
   end
 end
