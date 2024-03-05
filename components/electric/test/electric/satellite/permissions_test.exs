@@ -265,7 +265,7 @@ defmodule Electric.Satellite.PermissionsTest do
           ]
         )
 
-      query = Sqlite.table_triggers(perms, cxt.schema_version, @comments)
+      query = Sqlite.permissions_triggers(perms, cxt.schema_version)
       IO.puts(query)
       :ok = Exqlite.Sqlite3.execute(cxt.conn, query)
 
@@ -303,6 +303,12 @@ defmodule Electric.Satellite.PermissionsTest do
                Exqlite.Sqlite3.execute(
                  cxt.conn,
                  "update comments set comment = 'updated' where id = 'c3'"
+               )
+
+      assert {:error, _} =
+               Exqlite.Sqlite3.execute(
+                 cxt.conn,
+                 "insert into teams (id) values ('e5dceb9d-e8ae-4d72-8e7b-29237131f62b')"
                )
     end
   end

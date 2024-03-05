@@ -571,11 +571,13 @@ defmodule ElectricTest.PermissionsHelpers do
       |> IO.iodata_to_binary()
     end
 
-    def table_triggers(perms, schema, table) do
-      # dbg(perms)
-      # TODO: if there are no perms on a table, return a global reject trigger
+    def permissions_triggers(perms, schema) do
+      for {table, _schema} <- schema.tables do
+        table_triggers(perms, schema, table)
+      end
+    end
 
-      # [:INSERT, :UPDATE, :DELETE]
+    def table_triggers(perms, schema, table) do
       Stream.flat_map([:INSERT, :UPDATE, :DELETE], fn action ->
         %{scoped: scoped, unscoped: unscoped} =
           Map.get(perms.roles, {table, action}, %{scoped: [], unscoped: []})
@@ -585,7 +587,9 @@ defmodule ElectricTest.PermissionsHelpers do
         case_clauses =
           Enum.concat([
             Stream.flat_map(unscoped, &unscoped_trigger_test(&1, perms, schema, table, action)),
-            Stream.flat_map(scoped, &scoped_trigger_test(&1, perms, schema, table, action))
+            Stream.flat_map(scoped, &scoped_trigger_test(&1, perms, schema, table, action)),
+            # fallback that ensures the when case fails
+            ["FALSE"]
           ])
           |> Enum.map(&["        WHEN (", &1, ") THEN TRUE"])
           |> Enum.intersperse("\n")
@@ -599,6 +603,8 @@ defmodule ElectricTest.PermissionsHelpers do
         [
           IO.iodata_to_binary([
             """
+            -----------------------------------------------
+
             CREATE TRIGGER "#{trigger_name(table, action)}" BEFORE #{action} ON #{t(table)}
             FOR EACH ROW WHEN NOT (
             """,
@@ -606,22 +612,23 @@ defmodule ElectricTest.PermissionsHelpers do
             "\n",
             ") BEGIN\n",
             "    SELECT RAISE(ROLLBACK, 'does not have matching #{action} permissions on \"#{t(table)}\"');",
-            "\nEND;"
+            "\nEND;\n"
           ])
         ]
       end)
-      |> Enum.join("\n\n")
+      |> Enum.join("\n")
     end
 
-    defp unscoped_trigger_test(role_grant, perms, schema, table, action) do
-      # test columns (for update) and where clause (for all)
+    # TODO: test columns (for update) and where clause (for all)
+    defp unscoped_trigger_test(_role_grant, _perms, _schema, _table, _action) do
       # generally when we have an unscoped role for a grant, then we're good
       ["SELECT TRUE"]
     end
 
+    # TODO: test columns (for update) and where clause (for all)
     defp scoped_trigger_test(role_grant, perms, schema, table, action) do
       %{role: %{scope: {root, scope_id}}} = role_grant
-      # test columns (for update) and where clause (for all)
+
       {scope_table, where_clause} =
         case action do
           :INSERT ->
