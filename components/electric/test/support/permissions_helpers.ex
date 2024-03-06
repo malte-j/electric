@@ -409,8 +409,8 @@ defmodule ElectricTest.PermissionsHelpers do
     end
   end
 
-  def table(relation) do
-    Electric.Utils.inspect_relation(relation)
+  def table({_schema, table}) do
+    table
   end
 
   def perms_build(cxt, grants, roles, attrs \\ []) do
@@ -538,12 +538,12 @@ defmodule ElectricTest.PermissionsHelpers do
     defp id({_table, id, _attrs, _}), do: id
 
     # can't use `WITH` in triggers
-    def get_scope_query(schema, root, table, where_clause) do
+    def get_scope_query(schema, root, table, where_clause, select_clause \\ nil) do
       fk_graph = SchemaLoader.Version.fk_graph(schema)
 
       query = [
         "SELECT ",
-        pk(root),
+        select_clause || pk(root),
         " FROM ",
         t(root)
       ]
@@ -584,6 +584,7 @@ defmodule ElectricTest.PermissionsHelpers do
 
         # if we have an unscoped role in our role grant list for this action (on this table)
         # then we have permission (if the column list and the where clause match)
+        # TODO: add comments before each when clause giving source
         case_clauses =
           Enum.concat([
             Stream.flat_map(unscoped, &unscoped_trigger_test(&1, perms, schema, table, action)),
@@ -593,6 +594,15 @@ defmodule ElectricTest.PermissionsHelpers do
           ])
           |> Enum.map(&["        WHEN (", &1, ") THEN TRUE"])
           |> Enum.intersperse("\n")
+
+        additional_triggers =
+          Enum.concat([
+            Stream.flat_map(
+              unscoped,
+              &unscoped_column_limit_trigger(&1, perms, schema, table, action)
+            ),
+            scope_move_triggers(scoped, perms, schema, table, action)
+          ])
 
         case_body =
           Enum.intersperse(
@@ -605,6 +615,8 @@ defmodule ElectricTest.PermissionsHelpers do
             """
             -----------------------------------------------
 
+            DROP TRIGGER IF EXISTS "#{trigger_name(table, action)}";
+
             CREATE TRIGGER "#{trigger_name(table, action)}" BEFORE #{action} ON #{t(table)}
             FOR EACH ROW WHEN NOT (
             """,
@@ -614,25 +626,161 @@ defmodule ElectricTest.PermissionsHelpers do
             "    SELECT RAISE(ROLLBACK, 'does not have matching #{action} permissions on \"#{t(table)}\"');",
             "\nEND;\n"
           ])
+          | additional_triggers
         ]
       end)
       |> Enum.join("\n")
     end
 
-    # TODO: test columns (for update) and where clause (for all)
-    defp unscoped_trigger_test(_role_grant, _perms, _schema, _table, _action) do
-      # generally when we have an unscoped role for a grant, then we're good
-      ["SELECT TRUE"]
+    defp scope_move_triggers([_ | _] = scoped, _perms, schema, table, :UPDATE) do
+      fk_graph = SchemaLoader.Version.fk_graph(schema)
+
+      scopes =
+        Enum.flat_map(scoped, fn %{role: %{scope: {scope_table, scope_id}} = _role} ->
+          case Graph.get_shortest_path(fk_graph, table, scope_table) do
+            nil ->
+              []
+
+            [^table, parent] ->
+              [%{label: fks}] = Graph.edges(fk_graph, table, parent)
+
+              when_clause =
+                ~s[json('#{Jason.encode!(scope_id)}') = (select json_array(#{Enum.map(fks, &"NEW.#{&1}")}))]
+
+              [{{scope_table, fks}, when_clause}]
+
+            [^table | [parent | _] = _path] ->
+              [%{label: fks}] = Graph.edges(fk_graph, table, parent)
+
+              when_clause =
+                IO.iodata_to_binary([
+                  ~s[json('#{Jason.encode!(scope_id)}') = (],
+                  get_scope_query(
+                    schema,
+                    scope_table,
+                    parent,
+                    "NEW.#{hd(fks)}",
+                    ~s|json_array(#{Enum.map(["id"], &"#{t(scope_table)}.#{&1}")})|
+                  ),
+                  ")"
+                ])
+
+              [{{scope_table, fks}, when_clause}]
+          end
+        end)
+        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+      trigger_name = trigger_name(table, :UPDATE, ["scope_move"])
+
+      for {{_scope_root, [fk]}, when_clauses} <- scopes do
+        IO.iodata_to_binary([
+          """
+          -----------------------------------------------
+
+          DROP TRIGGER IF EXISTS "#{trigger_name}";
+
+          CREATE TRIGGER "#{trigger_name}" BEFORE UPDATE OF #{Enum.join([fk], ", ")} ON #{t(table)}
+          FOR EACH ROW WHEN NOT (
+          SELECT CASE
+          #{when_clauses |> Enum.map(&"    WHEN (#{&1}) THEN TRUE") |> Enum.join("\n")}
+              ELSE FALSE
+          END
+          """,
+          "",
+          "\n",
+          ") BEGIN\n",
+          "    SELECT RAISE(ROLLBACK, 'does not have matching UPDATE permissions in new scope on \"#{t(table)}\"');",
+          "\nEND;\n"
+        ])
+      end
+    end
+
+    defp scope_move_triggers(_scoped, _perms, _schema, _table, _action) do
+      []
+    end
+
+    defp unscoped_column_limit_trigger(role_grant, _perms, schema, table, :UPDATE) do
+      case role_grant.grant.columns do
+        :all ->
+          []
+
+        allowed_columns ->
+          {:ok, table_schema} = SchemaLoader.Version.table(schema, table)
+          column_names = MapSet.new(table_schema.columns, & &1.name)
+          disallowed_columns = MapSet.difference(column_names, allowed_columns)
+
+          trigger_name = trigger_name(table, :UPDATE, ["columns"])
+
+          [
+            IO.iodata_to_binary([
+              """
+              -----------------------------------------------
+
+              DROP TRIGGER IF EXISTS "#{trigger_name}";
+
+              CREATE TRIGGER "#{trigger_name}" BEFORE UPDATE OF #{Enum.join(disallowed_columns, ", ")} ON #{t(table)} BEGIN
+                  SELECT RAISE(ROLLBACK, 'no permission to update columns #{Enum.join(disallowed_columns, ", ")} on \"#{t(table)}\"');
+              END;
+              """
+            ])
+          ]
+      end
+    end
+
+    defp unscoped_column_limit_trigger(role_grant, _perms, schema, table, :INSERT) do
+      case role_grant.grant.columns do
+        :all ->
+          []
+
+        allowed_columns ->
+          {:ok, table_schema} = SchemaLoader.Version.table(schema, table)
+          column_names = MapSet.new(table_schema.columns, & &1.name)
+          disallowed_columns = MapSet.difference(column_names, allowed_columns)
+
+          trigger_name = trigger_name(table, :INSERT, ["columns"])
+
+          # this column limit on inserts is weird
+          when_clause =
+            disallowed_columns
+            |> Enum.map(&"(NEW.#{&1} IS NOT NULL)")
+            |> Enum.join(" OR ")
+
+          [
+            IO.iodata_to_binary([
+              """
+              -----------------------------------------------
+
+              DROP TRIGGER IF EXISTS "#{trigger_name}";
+
+              CREATE TRIGGER "#{trigger_name}" BEFORE INSERT ON #{t(table)}
+              WHEN (#{when_clause})
+              BEGIN
+                  SELECT RAISE(ROLLBACK, 'no permission to update column(s) #{disallowed_columns |> Enum.map(&~s["#{&1}"]) |> Enum.join(", ")} on \"#{t(table)}\"');
+              END;
+              """
+            ])
+          ]
+      end
+    end
+
+    defp unscoped_column_limit_trigger(_role_grant, _perms, _schema, _table, _action) do
+      []
     end
 
     # TODO: test columns (for update) and where clause (for all)
-    defp scoped_trigger_test(role_grant, perms, schema, table, action) do
+    defp unscoped_trigger_test(_role_grant, _perms, _schema, _table, _action) do
+      # generally when we have an unscoped role for a grant, then we're good
+      ["TRUE"]
+    end
+
+    # TODO: test columns (for update) and where clause (for all)
+    defp scoped_trigger_test(role_grant, _perms, schema, table, action) do
       %{role: %{scope: {root, scope_id}}} = role_grant
 
       {scope_table, where_clause} =
         case action do
           :INSERT ->
-            {parent_table, fk_column} = fk_column(schema, root, table) |> dbg
+            {parent_table, fk_column} = fk_column(schema, root, table)
             {parent_table, "NEW.#{fk_column}"}
 
           :UPDATE ->
@@ -649,8 +797,8 @@ defmodule ElectricTest.PermissionsHelpers do
       ]
     end
 
-    defp trigger_name(table, action) do
-      "__electric_perms_#{t(table)}_#{action}"
+    defp trigger_name(table, action, suffixes \\ []) do
+      Enum.join(["__electric_perms_#{t(table)}_#{action}" | suffixes], "_")
     end
 
     defp fk_column(schema, root, table) do

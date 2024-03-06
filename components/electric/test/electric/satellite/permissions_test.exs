@@ -33,12 +33,12 @@ defmodule Electric.Satellite.PermissionsTest do
     migrations = [
       {"01",
        [
-         "create table regions (id uuid primary key)",
+         "create table regions (id uuid primary key, name text)",
          "create table offices (id uuid primary key, region_id uuid not null references regions (id))",
          "create table workspaces (id uuid primary key)",
          "create table projects (id uuid primary key, workspace_id uuid not null references workspaces (id))",
-         "create table issues (id uuid primary key, project_id uuid not null references projects (id))",
-         "create table comments (id uuid primary key, issue_id uuid not null references issues (id), comment text)",
+         "create table issues (id uuid primary key, project_id uuid not null references projects (id), description text)",
+         "create table comments (id uuid primary key, issue_id uuid not null references issues (id), comment text, owner text)",
          "create table reactions (id uuid primary key, comment_id uuid not null references comments (id))",
          "create table users (id uuid primary key, role text not null default 'normie')",
          "create table teams (id uuid primary key)",
@@ -105,23 +105,23 @@ defmodule Electric.Satellite.PermissionsTest do
              ]},
             {@issues, "i4"}
           ]},
-         {@projects, "p3", [{@issues, "i5", []}]},
+         {@projects, "p3", [{@issues, "i5", [{@comments, "c6"}]}]},
          {@projects, "p4", [{@issues, "i6", []}]}
        ]}
     ]
 
+    fk_edges =
+      [
+        {@comments, @issues, ["issue_id"]},
+        {@issues, @projects, ["project_id"]},
+        {@offices, @regions, ["region_id"]},
+        {@project_memberships, @projects, ["project_id"]},
+        {@projects, @workspaces, ["workspace_id"]},
+        {@reactions, @comments, ["comment_id"]}
+      ]
+
     tree =
-      Tree.new(
-        data,
-        [
-          {@comments, @issues, ["issue_id"]},
-          {@issues, @projects, ["project_id"]},
-          {@offices, @regions, ["region_id"]},
-          {@project_memberships, @projects, ["project_id"]},
-          {@projects, @workspaces, ["workspace_id"]},
-          {@reactions, @comments, ["comment_id"]}
-        ]
-      )
+      Tree.new(data, fk_edges)
 
     {:ok, _} = start_supervised(Perms.Transient)
 
@@ -130,49 +130,15 @@ defmodule Electric.Satellite.PermissionsTest do
      loader: loader,
      schema_version: schema_version,
      migrations: migrations,
-     data: data}
+     data: data,
+     fk_edges: fk_edges}
   end
 
   test "yaml" do
     "../../../perms-tests.yaml"
     |> Path.expand(__DIR__)
-    |> YamlElixir.read_from_file!()
-    |> Map.get("tests", [])
-    |> Enum.map(fn test ->
-      Enum.reduce(~w(assigns grants name roles), %{}, fn key, t ->
-        case key do
-          "assigns" ->
-            Map.put(
-              t,
-              :assigns,
-              Map.fetch!(test, key)
-              |> Enum.map(fn assign ->
-                Map.new(assign, fn {k, v} ->
-                  {k |> String.to_existing_atom(), v}
-                end)
-              end)
-            )
-
-          "roles" ->
-            Map.put(
-              t,
-              :roles,
-              Map.fetch!(test, key)
-              |> Enum.map(fn assign ->
-                Map.new(assign, fn {k, v} ->
-                  {k |> String.to_existing_atom(), v}
-                end)
-              end)
-            )
-
-          "grants" ->
-            Map.put(t, :grants, Map.fetch!(test, key))
-
-          "name" ->
-            Map.put(t, :name, Map.fetch!(test, key))
-        end
-      end)
-    end)
+    |> YamlElixir.read_from_file!(atoms: true)
+    |> Map.get(:tests, [])
   end
 
   defmodule Server do
@@ -180,7 +146,9 @@ defmodule Electric.Satellite.PermissionsTest do
       Tree
     }
 
-    def tree(migrations, vertices, fk_edges) do
+    alias Electric.Satellite.Permissions
+
+    def setup(migrations, vertices, fk_edges) do
       loader_spec = MockSchemaLoader.backend_spec(migrations: migrations)
 
       {:ok, loader} = SchemaLoader.connect(loader_spec, [])
@@ -188,14 +156,30 @@ defmodule Electric.Satellite.PermissionsTest do
 
       {:ok, tree: Tree.new(vertices, fk_edges), loader: loader, schema_version: schema_version}
     end
+
+    def name, do: "Server"
+
+    def perms(cxt, grants, roles, attrs \\ []) do
+      ElectricTest.PermissionsHelpers.perms_build(cxt, grants, roles, attrs)
+    end
+
+    def table(relation) do
+      Electric.Utils.inspect_relation(relation)
+    end
+
+    def validate_write(perms, tree, tx) do
+      Permissions.validate_write(perms, tree, tx)
+    end
   end
 
   defmodule Client do
-    def tree(migrations, vertices, fk_edges) do
+    alias Electric.Replication.Changes
+
+    def setup(migrations, vertices, _fk_edges) do
       {:ok, conn} = Exqlite.Sqlite3.open(":memory:")
 
       conn =
-        Enum.reduce(migrations, fn {_version, stmts}, conn ->
+        Enum.reduce(migrations, conn, fn {_version, stmts}, conn ->
           for stmt <- stmts do
             :ok = Exqlite.Sqlite3.execute(conn, stmt)
           end
@@ -203,13 +187,110 @@ defmodule Electric.Satellite.PermissionsTest do
           conn
         end)
 
+      conn = ElectricTest.PermissionsHelpers.Sqlite.build_tree(conn, vertices)
       loader_spec = MockSchemaLoader.backend_spec(migrations: migrations)
 
       {:ok, loader} = SchemaLoader.connect(loader_spec, [])
       {:ok, schema_version} = SchemaLoader.load(loader)
 
-      {:ok, tree: {__MODULE__, {conn, schema_version}}}
+      {:ok, tree: conn, conn: conn, schema_version: schema_version, loader: loader}
     end
+
+    def name, do: "Client"
+
+    def perms(cxt, grants, roles, attrs \\ []) do
+      perms = ElectricTest.PermissionsHelpers.perms_build(cxt, grants, roles, attrs)
+
+      query =
+        ElectricTest.PermissionsHelpers.Sqlite.permissions_triggers(perms, cxt.schema_version)
+
+      :ok = Exqlite.Sqlite3.execute(cxt.conn, query)
+      perms
+    end
+
+    def table({_schema, table}), do: table
+
+    def validate_write(perms, conn, tx) do
+      query = build_query(tx)
+
+      case Exqlite.Sqlite3.execute(conn, query) do
+        :ok ->
+          {:ok, perms}
+
+        {:error, _} = error ->
+          Exqlite.Sqlite3.execute(conn, "ROLLBACK")
+          error
+      end
+    end
+
+    defp build_query(%Changes.Transaction{changes: changes}) do
+      IO.iodata_to_binary(
+        [
+          "BEGIN;",
+          Enum.map(changes, &change_to_stmt/1),
+          "COMMIT;"
+        ]
+        |> Enum.intersperse("\n")
+      )
+    end
+
+    defp change_to_stmt(%Changes.NewRecord{relation: relation, record: record}) do
+      {cols, vals} = columns_values(record)
+
+      [
+        "INSERT INTO ",
+        t(relation),
+        " (",
+        Enum.join(cols, ", "),
+        ") VALUES (",
+        Enum.join(vals, ", "),
+        ");"
+      ]
+    end
+
+    defp change_to_stmt(%Changes.UpdatedRecord{} = change) do
+      %{relation: relation, old_record: old, record: new, changed_columns: changed} = change
+
+      cols =
+        new
+        |> Enum.filter(fn {k, _} -> MapSet.member?(changed, k) end)
+        |> columns_values()
+        |> Tuple.to_list()
+        |> Enum.zip()
+
+      [
+        "UPDATE ",
+        t(relation),
+        " SET ",
+        Enum.map(cols, fn {k, v} -> [k, " = ", v] end) |> Enum.intersperse(", "),
+        " WHERE ",
+        "id = ",
+        v(Map.fetch!(old, "id")),
+        ";"
+      ]
+    end
+
+    defp change_to_stmt(%Changes.DeletedRecord{relation: relation, old_record: old}) do
+      [
+        "DELETE FROM ",
+        t(relation),
+        " WHERE ",
+        "id = ",
+        v(Map.fetch!(old, "id")),
+        ";"
+      ]
+    end
+
+    defp t({_, table}), do: table
+
+    defp columns_values(record) do
+      Enum.reduce(record, {[], []}, fn {k, v}, {cols, vals} ->
+        {[k | cols], [v(v) | vals]}
+      end)
+    end
+
+    defp v(s) when is_binary(s), do: "'#{s}'"
+    defp v(i), do: "#{i}"
   end
 
   describe "sqlite" do
@@ -231,7 +312,8 @@ defmodule Electric.Satellite.PermissionsTest do
       conn = Sqlite.build_tree(conn, cxt.data)
       {:ok, loader} = SchemaLoader.connect(loader_spec, [])
       {:ok, schema_version} = SchemaLoader.load(loader)
-      {:ok, conn: conn}
+
+      {:ok, conn: conn, schema_version: schema_version, loader: loader}
     end
 
     test "get_scope_query/3", cxt do
@@ -266,7 +348,6 @@ defmodule Electric.Satellite.PermissionsTest do
         )
 
       query = Sqlite.permissions_triggers(perms, cxt.schema_version)
-      IO.puts(query)
       :ok = Exqlite.Sqlite3.execute(cxt.conn, query)
 
       assert :ok =
@@ -310,6 +391,548 @@ defmodule Electric.Satellite.PermissionsTest do
                  cxt.conn,
                  "insert into teams (id) values ('e5dceb9d-e8ae-4d72-8e7b-29237131f62b')"
                )
+    end
+  end
+
+  for module <- [Server, Client] do
+    describe "#{module.name()}:" do
+      setup(cxt) do
+        {:ok, cxt} = unquote(module).setup(cxt.migrations, cxt.data, cxt.fk_edges)
+        {:ok, Map.put(Map.new(cxt), :module, unquote(module))}
+      end
+
+      test "scoped role, scoped grant", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT ALL ON #{table(@comments)} TO (projects, 'editor')],
+              @projects_assign
+            ],
+            [
+              Roles.role("editor", @projects, "p2", "assign-1")
+            ]
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   # issue i1 belongs to project p1
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i1"})
+                   ])
+                 )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   # issue i3 belongs to project p2
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i3"})
+                   ])
+                 )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   # issue i3 belongs to project p2
+                   Chgs.tx([
+                     Chgs.update(@comments, %{"id" => "c4", "issue_id" => "i3"}, %{
+                       "comment" => "changed"
+                     })
+                   ])
+                 )
+      end
+
+      test "unscoped role, scoped grant", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT ALL ON #{table(@comments)} TO (projects, 'editor')],
+              @global_assign
+            ],
+            [
+              Roles.role("editor", "assign-1")
+            ]
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   # issue i1 belongs to project p1
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i1"})
+                   ])
+                 )
+      end
+
+      test "scoped role, unscoped grant", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT ALL ON #{table(@comments)} TO 'editor'],
+              @projects_assign
+            ],
+            [
+              # we have an editor role within project p2
+              Roles.role("editor", @projects, "p2", "assign-1")
+            ]
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   # issue i1 belongs to project p1
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i1"})
+                   ])
+                 )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   # issue i3 belongs to project p2 but the grant is global
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i3"})
+                   ])
+                 )
+      end
+
+      test "grant for different table", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT SELECT ON #{table(@comments)} TO 'editor'],
+              ~s[GRANT ALL ON #{table(@reactions)} TO 'editor'],
+              @global_assign
+            ],
+            [
+              Roles.role("editor", "assign-1")
+            ]
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i1"})
+                   ])
+                 )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@reactions, %{"id" => "r100", "comment_id" => "c1"})
+                   ])
+                 )
+      end
+
+      test "unscoped role, unscoped grant", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT UPDATE ON #{table(@comments)} TO 'editor'],
+              @global_assign
+            ],
+            [
+              Roles.role("editor", "assign-1")
+            ]
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(
+                       @comments,
+                       %{"id" => "c100", "issue_id" => "i1", "comment" => "old"},
+                       %{
+                         "comment" => "changed"
+                       }
+                     )
+                   ])
+                 )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i1"})
+                   ])
+                 )
+      end
+
+      test "scoped role, change outside of scope", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT UPDATE ON #{table(@comments)} TO 'editor'],
+              ~s[GRANT ALL ON #{table(@regions)} TO 'admin'],
+              @projects_assign,
+              @global_assign
+            ],
+            [
+              Roles.role("editor", @projects, "p2", "assign-1"),
+              Roles.role("admin", "assign-2")
+            ]
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@regions, %{"id" => "r1", "name" => "region"}, %{
+                       "name" => "updated region"
+                     })
+                   ])
+                 )
+      end
+
+      test "role with no matching assign", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT UPDATE ON #{table(@comments)} TO (#{table(@projects)}, 'editor')]
+            ],
+            [
+              Roles.role("editor", @projects, "p1", "non-existant")
+            ]
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@comments, %{"id" => "c1", "comment" => "old comment"}, %{
+                       "comment" => "new comment"
+                     })
+                   ])
+                 )
+      end
+
+      test "overlapping global and scoped perms", cxt do
+        # Test that even though the global perm doesn't grant
+        # the required permissions, the scoped perms are checked
+        # as well. The rule is that if *any* grant gives the perm
+        # then we have it, so we need to check every applicable grant
+        # until we run out of get permission.
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT UPDATE (description) ON #{table(@issues)} TO (projects, 'editor')],
+              ~s[GRANT UPDATE (title) ON #{table(@issues)} TO 'editor'],
+              @projects_assign,
+              @global_assign
+            ],
+            [
+              Roles.role("editor", @projects, "p1", "assign-1"),
+              Roles.role("editor", "assign-2")
+            ]
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@issues, %{"id" => "i1"}, %{
+                       "description" => "updated"
+                     })
+                   ])
+                 )
+      end
+
+      test "AUTHENTICATED w/user_id", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            ~s[GRANT ALL ON #{table(@comments)} TO AUTHENTICATED],
+            []
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c10", "issue_id" => "i1"})
+                   ])
+                 )
+      end
+
+      test "AUTHENTICATED w/o permission", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            ~s[GRANT UPDATE ON #{table(@comments)} TO AUTHENTICATED],
+            []
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c10", "issue_id" => "i1"})
+                   ])
+                 )
+      end
+
+      test "AUTHENTICATED w/o user_id", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            ~s[GRANT ALL ON #{table(@comments)} TO AUTHENTICATED],
+            [],
+            auth: Auth.nobody()
+          )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c10", "issue_id" => "i1"})
+                   ])
+                 )
+      end
+
+      test "ANYONE w/o user_id", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            ~s[GRANT ALL ON #{table(@comments)} TO ANYONE],
+            [],
+            auth: Auth.nobody()
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{"id" => "c10", "issue_id" => "i1"})
+                   ])
+                 )
+      end
+
+      test "protected columns", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT INSERT (id, comment, issue_id) ON #{table(@comments)} TO 'editor'],
+              ~s[GRANT UPDATE (comment) ON #{table(@comments)} TO 'editor'],
+              @global_assign
+            ],
+            [
+              Roles.role("editor", "assign-1")
+            ]
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{
+                       "id" => "c10",
+                       "issue_id" => "i1",
+                       "comment" => "something"
+                     })
+                   ])
+                 )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{
+                       "id" => "c11",
+                       "issue_id" => "i1",
+                       "comment" => "something",
+                       "owner" => "invalid"
+                     })
+                   ])
+                 )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@comments, %{"id" => "c10"}, %{"comment" => "updated"})
+                   ])
+                 )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@comments, %{"id" => "c10"}, %{
+                       "comment" => "updated",
+                       "owner" => "changed"
+                     })
+                   ])
+                 )
+      end
+
+      # TODO: maybe not possible in sqlite
+      # test "protected columns with overlapping scopes", cxt do
+      #   perms =
+      #     cxt.module.perms(
+      #       cxt,
+      #       [
+      #         ~s[GRANT INSERT (id, comment, issue_id) ON #{table(@comments)} TO 'editor'],
+      #         ~s[GRANT UPDATE (comment) ON #{table(@comments)} TO 'editor'],
+      #         # scoped role
+      #         ~s[GRANT INSERT (owner) ON #{table(@comments)} TO (projects, 'editor')],
+      #         ~s[GRANT UPDATE (owner) ON #{table(@comments)} TO (projects, 'editor')],
+      #         @global_assign,
+      #         @projects_assign
+      #       ],
+      #       [
+      #         Roles.role("editor", "assign-1"),
+      #         Roles.role("editor", @projects, "p1", "assign-2")
+      #       ]
+      #     )
+
+      #   assert {:ok, _perms} =
+      #            cxt.module.validate_write(
+      #              perms,
+      #              cxt.tree,
+      #              Chgs.tx([
+      #                Chgs.insert(@comments, %{
+      #                  "id" => "c10",
+      #                  "issue_id" => "i1",
+      #                  "comment" => "something"
+      #                })
+      #              ])
+      #            )
+
+      #   assert {:error, _} =
+      #            cxt.module.validate_write(
+      #              perms,
+      #              cxt.tree,
+      #              Chgs.tx([
+      #                Chgs.insert(@comments, %{
+      #                  "id" => "c10",
+      #                  "issue_id" => "i1",
+      #                  "text" => "something",
+      #                  "owner" => "invalid"
+      #                })
+      #              ])
+      #            )
+
+      #   assert {:ok, _perms} =
+      #            cxt.module.validate_write(
+      #              perms,
+      #              cxt.tree,
+      #              Chgs.tx([
+      #                Chgs.update(@comments, %{"id" => "c10"}, %{"comment" => "updated"})
+      #              ])
+      #            )
+
+      #   assert {:error, _} =
+      #            cxt.module.validate_write(
+      #              perms,
+      #              cxt.tree,
+      #              Chgs.tx([
+      #                Chgs.update(@comments, %{"id" => "c10"}, %{
+      #                  "comment" => "updated",
+      #                  "owner" => "changed"
+      #                })
+      #              ])
+      #            )
+      # end
+      test "moves between auth scopes", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT UPDATE ON #{table(@issues)} TO (#{table(@projects)}, 'editor')],
+              ~s[GRANT UPDATE ON #{table(@reactions)} TO (#{table(@projects)}, 'editor')],
+              ~s[GRANT SELECT ON #{table(@issues)} TO 'reader'],
+              ~s[GRANT SELECT ON #{table(@reactions)} TO 'reader'],
+              @projects_assign
+            ],
+            [
+              # update rights on p1 & p3
+              Roles.role("editor", @projects, "p1", "assign-1"),
+              Roles.role("editor", @projects, "p3", "assign-1"),
+              # read-only role on project p2
+              Roles.role("reader", @projects, "p2", "assign-1")
+            ]
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@issues, %{"id" => "i1", "project_id" => "p1"}, %{
+                       "project_id" => "p3"
+                     })
+                   ])
+                 )
+
+        # attempt to move an issue into a project we don't have write access to
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@issues, %{"id" => "i1", "project_id" => "p1"}, %{
+                       "project_id" => "p2"
+                     })
+                   ])
+                 )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@reactions, %{"id" => "r1", "comment_id" => "c1"}, %{
+                       "comment_id" => "c6"
+                     })
+                   ])
+                 )
+
+        # attempt to move an issue into a project we don't have write access to
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@reactions, %{"id" => "r1", "comment_id" => "c1"}, %{
+                       "comment_id" => "c3"
+                     })
+                   ])
+                 )
+      end
     end
   end
 
