@@ -322,7 +322,8 @@ defmodule Electric.Satellite.PermissionsTest do
         {@workspaces, @reactions, "r8", "w1"},
         {@projects, @reactions, "r8", "p2"},
         {@issues, @reactions, "r7", "i3"},
-        {@projects, @project_memberships, "pm1", "p1"}
+        {@projects, @project_memberships, "pm1", "p1"},
+        {@projects, @projects, "p1", "p1"}
       ]
 
       for {root, table, id, scope_id} <- tests do
@@ -930,6 +931,47 @@ defmodule Electric.Satellite.PermissionsTest do
                      Chgs.update(@reactions, %{"id" => "r1", "comment_id" => "c1"}, %{
                        "comment_id" => "c3"
                      })
+                   ])
+                 )
+      end
+
+      test "write in scope tree", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT ALL ON #{table(@issues)} TO (#{table(@projects)}, 'editor')],
+              ~s[GRANT ALL ON #{table(@comments)} TO (#{table(@projects)}, 'editor')],
+              ~s[GRANT ALL ON #{table(@reactions)} TO (#{table(@projects)}, 'editor')],
+              @projects_assign
+            ],
+            [
+              Roles.role("editor", @projects, "p1", "assign-1")
+            ]
+          )
+
+        # a single tx that builds within a writable permissions scope
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@issues, %{"id" => "i100", "project_id" => "p1"}),
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i100"}),
+                     Chgs.insert(@reactions, %{"id" => "r100", "comment_id" => "c100"})
+                   ])
+                 )
+
+        # any failure should abort the tx
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@issues, %{"id" => "i100", "project_id" => "p1"}),
+                     # this insert lives outside our perms
+                     Chgs.insert(@comments, %{"id" => "c100", "issue_id" => "i3"}),
+                     Chgs.insert(@reactions, %{"id" => "r100", "comment_id" => "c100"})
                    ])
                  )
       end

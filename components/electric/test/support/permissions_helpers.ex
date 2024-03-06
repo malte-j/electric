@@ -537,8 +537,24 @@ defmodule ElectricTest.PermissionsHelpers do
 
     defp id({_table, id, _attrs, _}), do: id
 
-    # can't use `WITH` in triggers
-    def get_scope_query(schema, root, table, where_clause, select_clause \\ nil) do
+    def get_scope_query(schema, root, root, where_clause, select_clause \\ nil)
+
+    def get_scope_query(_schema, root, root, where_clause, select_clause) do
+      [
+        "SELECT ",
+        select_clause || pk(root),
+        " FROM ",
+        t(root),
+        " WHERE ",
+        pk(root),
+        " = ",
+        where_clause,
+        " LIMIT 1"
+      ]
+      |> IO.iodata_to_binary()
+    end
+
+    def get_scope_query(schema, root, table, where_clause, select_clause) do
       fk_graph = SchemaLoader.Version.fk_graph(schema)
 
       query = [
