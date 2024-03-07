@@ -148,13 +148,15 @@ defmodule Electric.Satellite.PermissionsTest do
 
     alias Electric.Satellite.Permissions
 
-    def setup(migrations, vertices, fk_edges) do
+    def setup(cxt) do
+      %{migrations: migrations, data: data, fk_edges: fk_edges} = cxt
+
       loader_spec = MockSchemaLoader.backend_spec(migrations: migrations)
 
       {:ok, loader} = SchemaLoader.connect(loader_spec, [])
       {:ok, schema_version} = SchemaLoader.load(loader)
 
-      {:ok, tree: Tree.new(vertices, fk_edges), loader: loader, schema_version: schema_version}
+      {:ok, tree: Tree.new(data, fk_edges), loader: loader, schema_version: schema_version}
     end
 
     def name, do: "Server"
@@ -175,7 +177,8 @@ defmodule Electric.Satellite.PermissionsTest do
   defmodule Client do
     alias Electric.Replication.Changes
 
-    def setup(migrations, vertices, _fk_edges) do
+    def setup(cxt) do
+      %{migrations: migrations, data: data} = cxt
       {:ok, conn} = Exqlite.Sqlite3.open(":memory:")
 
       conn =
@@ -187,7 +190,7 @@ defmodule Electric.Satellite.PermissionsTest do
           conn
         end)
 
-      conn = ElectricTest.PermissionsHelpers.Sqlite.build_tree(conn, vertices)
+      conn = ElectricTest.PermissionsHelpers.Sqlite.build_tree(conn, data)
       loader_spec = MockSchemaLoader.backend_spec(migrations: migrations)
 
       {:ok, loader} = SchemaLoader.connect(loader_spec, [])
@@ -398,7 +401,7 @@ defmodule Electric.Satellite.PermissionsTest do
   for module <- [Server, Client] do
     describe "#{module.name()}:" do
       setup(cxt) do
-        {:ok, cxt} = unquote(module).setup(cxt.migrations, cxt.data, cxt.fk_edges)
+        {:ok, cxt} = unquote(module).setup(cxt)
         {:ok, Map.put(Map.new(cxt), :module, unquote(module))}
       end
 
@@ -1038,6 +1041,35 @@ defmodule Electric.Satellite.PermissionsTest do
                    ])
                  )
       end
+    end
+  end
+
+  describe "client only" do
+    setup(cxt) do
+      Client.setup(cxt)
+    end
+
+    test "rejects updates to primary keys", cxt do
+      perms =
+        Client.perms(
+          cxt,
+          [
+            ~s[GRANT ALL ON #{table(@issues)} TO 'editor'],
+            @global_assign
+          ],
+          [
+            Roles.role("editor", "assign-1")
+          ]
+        )
+
+      assert {:error, _} =
+               Client.validate_write(
+                 perms,
+                 cxt.tree,
+                 Chgs.tx([
+                   Chgs.update(@issues, %{"id" => "i1"}, %{"id" => "i100"})
+                 ])
+               )
     end
   end
 

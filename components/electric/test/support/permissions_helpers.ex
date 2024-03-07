@@ -645,11 +645,38 @@ defmodule ElectricTest.PermissionsHelpers do
           | additional_triggers
         ]
       end)
+      |> Stream.concat(global_triggers(table, schema))
       |> Enum.join("\n")
     end
 
     defp sql_expr(s) when is_binary(s), do: "'#{:binary.replace(s, "'", "''", [:global])}'"
     defp sql_expr(n) when is_integer(n) or is_float(n), do: "#{n}"
+
+    defp global_triggers(table, schema) do
+      {:ok, pks} = SchemaLoader.Version.primary_keys(schema, table)
+
+      trigger_name = trigger_name(table, :UPDATE, ["protect_pk"])
+
+      column_list =
+        pks
+        |> Stream.map(&~s["#{&1}"])
+        |> Enum.join(", ")
+
+      [
+        IO.iodata_to_binary([
+          """
+          -----------------------------------------------
+
+          DROP TRIGGER IF EXISTS "#{trigger_name}";
+
+          CREATE TRIGGER "#{trigger_name}" BEFORE UPDATE OF #{column_list} ON #{t(table)}
+          FOR EACH ROW BEGIN
+              SELECT RAISE(ROLLBACK, 'invalid update of primary key on \"#{t(table)}\"');
+          END;
+          """
+        ])
+      ]
+    end
 
     defp scope_move_triggers([_ | _] = scoped, _perms, schema, table, :UPDATE) do
       fk_graph = SchemaLoader.Version.fk_graph(schema)
@@ -714,12 +741,10 @@ defmodule ElectricTest.PermissionsHelpers do
           #{when_clauses |> Enum.map(&"    WHEN (#{&1}) THEN TRUE") |> Enum.join("\n")}
               ELSE FALSE
           END
-          """,
-          "",
-          "\n",
-          ") BEGIN\n",
-          "    SELECT RAISE(ROLLBACK, 'does not have matching UPDATE permissions in new scope on \"#{t(table)}\"');",
-          "\nEND;\n"
+          ) BEGIN
+              SELECT RAISE(ROLLBACK, 'does not have matching UPDATE permissions in new scope on \"#{t(table)}\"');
+          END;
+          """
         ])
       end
     end
