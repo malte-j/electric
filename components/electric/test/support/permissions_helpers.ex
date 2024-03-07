@@ -523,12 +523,24 @@ defmodule ElectricTest.PermissionsHelpers do
       table
     end
 
+    defp t(%{schema: _schema, name: table}) do
+      table
+    end
+
     defp fk({{_, table}, _id, _attrs, _children}) do
       "#{String.trim_trailing(table, "s")}_id"
     end
 
     defp fk({_, table}) do
       "#{String.trim_trailing(table, "s")}_id"
+    end
+
+    # quote name
+    defp q(name) when is_binary(name), do: ~s["#{name}"]
+
+    # list of things, mapped using mapper
+    defp l(list, mapper) when is_list(list) and is_function(mapper, 1) do
+      list |> Enum.map(mapper) |> Enum.join(", ")
     end
 
     # TODO: this needs to be a real pk col lookup
@@ -588,15 +600,22 @@ defmodule ElectricTest.PermissionsHelpers do
     end
 
     def permissions_triggers(perms, schema) do
-      for {table, _schema} <- schema.tables do
-        table_triggers(perms, schema, table)
-      end
+      Enum.concat([
+        [local_roles_table()],
+        Stream.map(schema.tables, fn {table, _schema} -> table_triggers(perms, schema, table) end),
+        Stream.map(perms.source.rules.assigns, &assign_triggers(&1, perms, schema))
+      ])
     end
+
+    @local_roles_table "__electric_local_roles"
+    @local_roles_tombstone_table "__electric_local_roles_tombstone"
 
     def table_triggers(perms, schema, table) do
       Stream.flat_map([:INSERT, :UPDATE, :DELETE], fn action ->
         %{scoped: scoped, unscoped: unscoped} =
           Map.get(perms.roles, {table, action}, %{scoped: [], unscoped: []})
+
+        dbg({table, scoped, unscoped})
 
         # if we have an unscoped role in our role grant list for this action (on this table)
         # then we have permission (if the column list and the where clause match)
@@ -605,6 +624,7 @@ defmodule ElectricTest.PermissionsHelpers do
           Enum.concat([
             Stream.flat_map(unscoped, &unscoped_trigger_test(&1, perms, schema, table, action)),
             Stream.flat_map(scoped, &scoped_trigger_test(&1, perms, schema, table, action)),
+            local_role_test(perms, schema, table, action),
             # fallback that ensures the when case fails
             ["FALSE"]
           ])
@@ -635,12 +655,11 @@ defmodule ElectricTest.PermissionsHelpers do
 
             CREATE TRIGGER "#{trigger_name(table, action)}" BEFORE #{action} ON #{t(table)}
             FOR EACH ROW WHEN NOT (
-            """,
-            case_body,
-            "\n",
-            ") BEGIN\n",
-            "    SELECT RAISE(ROLLBACK, 'does not have matching #{action} permissions on \"#{t(table)}\"');",
-            "\nEND;\n"
+            #{case_body}
+            ) BEGIN
+                SELECT RAISE(ROLLBACK, 'does not have matching #{action} permissions on "#{t(table)}"');
+            END;
+            """
           ])
           | additional_triggers
         ]
@@ -649,8 +668,8 @@ defmodule ElectricTest.PermissionsHelpers do
       |> Enum.join("\n")
     end
 
-    defp sql_expr(s) when is_binary(s), do: "'#{:binary.replace(s, "'", "''", [:global])}'"
-    defp sql_expr(n) when is_integer(n) or is_float(n), do: "#{n}"
+    defp e(s) when is_binary(s), do: "'#{:binary.replace(s, "'", "''", [:global])}'"
+    defp e(n) when is_integer(n) or is_float(n), do: "#{n}"
 
     defp global_triggers(table, schema) do
       {:ok, pks} = SchemaLoader.Version.primary_keys(schema, table)
@@ -695,7 +714,7 @@ defmodule ElectricTest.PermissionsHelpers do
               when_clause =
                 IO.iodata_to_binary([
                   "(",
-                  scope_id |> Enum.map(&sql_expr/1) |> Enum.join(", "),
+                  scope_id |> Enum.map(&e/1) |> Enum.join(", "),
                   ") = (select ",
                   fks |> Enum.map(&"NEW.#{&1}") |> Enum.join(", "),
                   ")"
@@ -709,7 +728,7 @@ defmodule ElectricTest.PermissionsHelpers do
               when_clause =
                 IO.iodata_to_binary([
                   "(",
-                  scope_id |> Enum.map(&sql_expr/1) |> Enum.join(", "),
+                  scope_id |> Enum.map(&e/1) |> Enum.join(", "),
                   ") = (",
                   get_scope_query(
                     schema,
@@ -804,7 +823,7 @@ defmodule ElectricTest.PermissionsHelpers do
 
     # TODO: where clause (for all)
     defp scoped_trigger_test(role_grant, perms, schema, table, action) do
-      %{role: %{scope: {root, scope_id}}} = role_grant
+      %{role: %{scope: {root, scope_id}} = role} = role_grant
 
       {scope_table, where_clause} =
         case action do
@@ -819,20 +838,192 @@ defmodule ElectricTest.PermissionsHelpers do
             {table, "OLD.id"}
         end
 
+      {:ok, pks} = SchemaLoader.Version.primary_keys(schema, root)
+
       scope_query = get_scope_query(schema, root, scope_table, where_clause)
 
       [
         [
-          column_protection(
-            "SELECT ('#{scope_id}') = (#{scope_query})",
-            role_grant,
-            perms,
-            schema,
-            table,
-            action
-          )
+          "\n",
+          """
+              WITH __scope__ AS (#{scope_query}),
+                   __tomb__ AS (
+                      SELECT t.row_id FROM #{@local_roles_tombstone_table} t
+                        WHERE t.assign_id IS #{e(role.assign_id)}
+                  )
+              SELECT (
+          """,
+          """
+                  (
+                      (#{l(scope_id, &e/1)}) = (SELECT #{l(pks, &q/1)} FROM __scope__)
+                      AND (#{Jason.encode!(role.id) |> e()} NOT IN (SELECT row_id FROM __tomb__))
+                  ) OR (
+                      (SELECT json_array(#{l(pks, &q/1)}) FROM __scope__) = (
+                          SELECT r.scope_id FROM #{q(@local_roles_table)} r WHERE
+                            (r.assign_id IS #{e(role.assign_id)})
+                            AND (r.role IS #{e(role_grant.grant.role)})
+                            AND (r.row_id NOT IN (SELECT row_id FROM __tomb__))
+                      )
+                  )
+          """
+          |> column_protection(role_grant, perms, schema, table, action),
+          "    )"
         ]
       ]
+    end
+
+    defp local_role_test(perms, schema, table, action) do
+      # TODO: have to build triggers based mostly on rules, not on the role-grant structures
+      # because I can't update the role-grants when a new role is added, like i do for the ex version
+      []
+    end
+
+    defp local_roles_table do
+      # TODO: clean up local roles and tombstones
+      # - local roles can be deleted when updated roles from electric come in and the corresponding (assign_id, row_id) exists in the perms
+      # - tombstones can be deleted when updated roles from electric come in and the (assign_id, row_id) no longer exists in the perms
+      """
+      CREATE TABLE IF NOT EXISTS "#{@local_roles_table}" (
+          assign_id TEXT NOT NULL,
+          row_id    TEXT NOT NULL,
+          scope_id  TEXT,
+          role      TEXT NOT NULL,
+          PRIMARY KEY (assign_id, row_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS "#{@local_roles_tombstone_table}" (
+          assign_id TEXT NOT NULL,
+          row_id    TEXT NOT NULL,
+          PRIMARY KEY (assign_id, row_id)
+      );
+      """
+    end
+
+    defp assign_triggers(assign, perms, schema) when not is_nil(perms.auth.user_id) do
+      # FIXME: should only run when user id of membership table = ME
+      user_id = perms.auth.user_id
+
+      Enum.map([:INSERT, :UPDATE, :DELETE], fn action ->
+        role =
+          case assign.role_column do
+            nil ->
+              assign.role_name
+
+            column ->
+              ~s[#{assign_trigger_prefix(action)}."#{column}"]
+          end
+
+        body =
+          case action do
+            :INSERT ->
+              [
+                """
+                    INSERT INTO "#{@local_roles_table}"
+                        (assign_id, row_id, scope_id, role)
+                    VALUES (
+                        #{e(assign.id)},
+                        #{assign_row_id(assign, schema, action)},
+                        #{assign_scope_id(assign, schema, action)},
+                        #{role}
+                    );
+                """
+              ]
+
+            :DELETE ->
+              [
+                """
+                    DELETE FROM "#{@local_roles_table}"
+                    WHERE assign_id IS #{e(assign.id)}
+                          AND row_id IS #{assign_row_id(assign, schema, action)};
+                """,
+                """
+                    INSERT INTO "#{@local_roles_tombstone_table}"
+                        (assign_id, row_id)
+                    VALUES (
+                        #{e(assign.id)},
+                        #{assign_row_id(assign, schema, action)}
+                    );
+                """
+              ]
+
+            :UPDATE ->
+              case assign.role_column do
+                nil ->
+                  []
+
+                column ->
+                  [
+                    """
+                        UPDATE "#{@local_roles_table}"
+                        SET role = NEW."#{column}"
+                        WHERE assign_id IS #{e(assign.id)}
+                              AND row_id IS #{assign_row_id(assign, schema, action)};
+                    """
+                  ]
+              end
+          end
+
+        body
+        |> Enum.with_index()
+        |> Enum.map(fn {stmt, n} ->
+          trigger_name = trigger_name(assign.table, action, ["assign", assign.id, "#{n}"])
+
+          """
+          -----------------------------------------------
+
+          DROP TRIGGER IF EXISTS "#{trigger_name}";
+
+          CREATE TRIGGER "#{trigger_name}" BEFORE #{action} ON #{t(assign.table)}
+          FOR EACH ROW WHEN (
+              #{assign_trigger_prefix(action)}."#{assign.user_column}" IS #{e(user_id)}
+          ) BEGIN
+          #{stmt}
+          END;
+          """
+        end)
+      end)
+    end
+
+    defp assign_triggers(_assign, _perms, _schema) do
+      []
+    end
+
+    defp assign_row_id(assign, schema, action) do
+      {:ok, pks} =
+        SchemaLoader.Version.primary_keys(schema, assign.table.schema, assign.table.name)
+
+      prefix = assign_trigger_prefix(action)
+
+      pk_cols = l(pks, &~s[#{prefix}."#{&1}"])
+
+      ~s[json_array(#{pk_cols})]
+    end
+
+    defp assign_scope_id(%{scope: nil} = _assign, _schema, _action) do
+      "NULL"
+    end
+
+    defp assign_scope_id(assign, schema, action) do
+      %{
+        table: %{schema: sname, name: tname},
+        scope: %{schema: scope_schema, name: scope_table}
+      } = assign
+
+      prefix = assign_trigger_prefix(action)
+
+      {_, fk} = fk_column(schema, {scope_schema, scope_table}, {sname, tname})
+
+      fk_cols = l([fk], &~s[#{prefix}."#{&1}"])
+
+      ~s[json_array(#{fk_cols})]
+    end
+
+    defp assign_trigger_prefix(action) do
+      case action do
+        :UPDATE -> "OLD"
+        :INSERT -> "NEW"
+        :DELETE -> "OLD"
+      end
     end
 
     defp trigger_name(table, action, suffixes \\ []) do
