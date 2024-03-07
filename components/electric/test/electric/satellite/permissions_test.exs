@@ -737,7 +737,7 @@ defmodule Electric.Satellite.PermissionsTest do
                  )
       end
 
-      test "protected columns", cxt do
+      test "unscoped protected columns", cxt do
         perms =
           cxt.module.perms(
             cxt,
@@ -784,6 +784,69 @@ defmodule Electric.Satellite.PermissionsTest do
                    cxt.tree,
                    Chgs.tx([
                      Chgs.update(@comments, %{"id" => "c10"}, %{"comment" => "updated"})
+                   ])
+                 )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@comments, %{"id" => "c10"}, %{
+                       "comment" => "updated",
+                       "owner" => "changed"
+                     })
+                   ])
+                 )
+      end
+
+      test "scoped protected columns", cxt do
+        perms =
+          cxt.module.perms(
+            cxt,
+            [
+              ~s[GRANT INSERT (id, comment, issue_id) ON #{table(@comments)} TO (projects, 'editor')],
+              ~s[GRANT UPDATE (comment) ON #{table(@comments)} TO (projects, 'editor')],
+              @projects_assign
+            ],
+            [
+              Roles.role("editor", @projects, "p1", "assign-1")
+            ]
+          )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{
+                       "id" => "c10",
+                       "issue_id" => "i1",
+                       "comment" => "something"
+                     })
+                   ])
+                 )
+
+        assert {:error, _} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.insert(@comments, %{
+                       "id" => "c11",
+                       "issue_id" => "i1",
+                       "comment" => "something",
+                       "owner" => "invalid"
+                     })
+                   ])
+                 )
+
+        assert {:ok, _perms} =
+                 cxt.module.validate_write(
+                   perms,
+                   cxt.tree,
+                   Chgs.tx([
+                     Chgs.update(@comments, %{"id" => "c2"}, %{"comment" => "updated"})
                    ])
                  )
 
