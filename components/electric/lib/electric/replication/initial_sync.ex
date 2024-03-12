@@ -8,8 +8,7 @@ defmodule Electric.Replication.InitialSync do
 
   alias Electric.Telemetry.Metrics
   alias Electric.Replication.Shapes
-  alias Electric.Postgres.{CachedWal, Extension}
-  # alias Electric.Replication.PostgresConnector
+  alias Electric.Postgres.{CachedWal, Extension, Lsn}
   alias Electric.Replication.Changes.{NewRecord, Transaction}
   alias Electric.Replication.Connectors
   alias Electric.Replication.Postgres.Client
@@ -160,16 +159,42 @@ defmodule Electric.Replication.InitialSync do
   #
   # Come up with a way to ensure the cached LSN remains in memory until the client's request
   # is fulfilled.
-  def fetch_and_emit_transactions_from_wal(_origin, _lsn, _send_events_fn) do
-    # slot_name = ""
+  @spec emit_transactions_from_resumable_wal_window(
+          Connectors.config(),
+          String.t(),
+          Lsn.t(),
+          Lsn.t(),
+          ([Transaction.t()] -> any)
+        ) :: {:ok, non_neg_integer()} | {:error, term}
+  def emit_transactions_from_resumable_wal_window(
+        connector_config,
+        client_id,
+        from_lsn,
+        to_lsn,
+        send_events_fn
+      ) do
+    main_slot = Connectors.get_replication_opts(connector_config).slot
+    tmp_slot = main_slot <> "_#{client_id}"
 
-    # origin
-    # |> PostgresConnector.connector_config()
-    # |> Connectors.get_connection_opts()
-    # |> Client.with_conn(fn conn ->
-    #   :epgsql.squery(conn, "SELECT pg_logical_slot_peek_changes(#{slot_name})")
-    # end)
-    :ok
+    connector_config
+    |> Connectors.get_connection_opts()
+    |> Client.with_conn(fn conn ->
+      :epgsql.squery(conn, """
+      SELECT pg_copy_logical_replication_slot('#{main_slot}', '#{tmp_slot}', true);
+      SELECT pg_replication_slot_advance('#{tmp_slot}', '#{from_lsn}');
+      SELECT pg_logical_slot_peek_changes('#{tmp_slot}', '#{to_lsn}');
+      """)
+    end)
+    |> IO.inspect()
+    |> case do
+      [{:ok, _, _}, {:ok, _, _}, {:ok, _, rows}] ->
+        send_events_fn.(rows)
+        tx_count = Enum.count(rows)
+        {:ok, tx_count}
+
+      error ->
+        {:error, error}
+    end
   end
 
   defp perform_magic_write(opts, subscription_id) do

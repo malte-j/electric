@@ -61,6 +61,13 @@ defmodule Electric.Postgres.CachedWal.EtsBacked do
   end
 
   @impl Api
+  def get_oldest_position(origin) do
+    with :"$end_of_table" <- :ets.first(ets_table_name(origin)) do
+      nil
+    end
+  end
+
+  @impl Api
   def get_current_position(origin) do
     with :"$end_of_table" <- :ets.last(ets_table_name(origin)) do
       nil

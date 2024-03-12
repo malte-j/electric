@@ -25,6 +25,7 @@ defmodule Electric.Postgres.CachedWal.Api do
         }
 
   @callback client_pos_in_cached_window?(Connectors.origin(), wal_pos()) :: boolean
+  @callback get_oldest_position(Connectors.origin()) :: wal_pos() | nil
   @callback get_current_position(Connectors.origin()) :: wal_pos() | nil
   @callback next_segment(Connectors.origin(), wal_pos()) ::
               {:ok, segment(), new_position :: wal_pos()} | :latest | {:error, term()}
@@ -49,6 +50,16 @@ defmodule Electric.Postgres.CachedWal.Api do
   @spec client_pos_in_cached_window?(module(), Connectors.origin(), wal_pos()) :: boolean
   def client_pos_in_cached_window?(module \\ default_module(), origin, wal_pos) do
     module.client_pos_in_cached_window?(origin, wal_pos)
+  end
+
+  @doc """
+  Get the oldest LSN that the cached WAL has seen.
+
+  Returns nil if the cached WAL hasn't processed any non-empty transactions yet.
+  """
+  @spec get_oldest_position(module(), Connectors.origin()) :: wal_pos | nil
+  def get_oldest_position(module \\ default_module(), origin) do
+    module.get_oldest_position(origin)
   end
 
   @doc """

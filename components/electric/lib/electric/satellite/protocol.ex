@@ -767,14 +767,25 @@ defmodule Electric.Satellite.Protocol do
   # Slow path: fetch missed WAL records from the database before subscribing the client to the stream.
   defp send_missed_wal_records_from_db({:ok, state}, :resumable, client_pos) do
     origin = Connectors.origin(state.connector_config)
-    lsn = Lsn.from_integer(client_pos)
+
+    client_lsn = Lsn.from_integer(client_pos)
+    cached_lsn = Electric.Postgres.CachedWal.Api.get_oldest_position(origin)
 
     # Make it look like the messages are coming from the CachedWal producer since that's how
     # Electric.Satellite.WebsocketServer is wired up to receive transactions from Postgres.
     cached_wal_producer_pid = state.out_rep.pid
     send_events_fn = &send(self(), {:"$gen_consumer", cached_wal_producer_pid, &1})
 
-    with :ok <- InitialSync.fetch_and_emit_transactions_from_wal(origin, lsn, send_events_fn) do
+    result =
+      InitialSync.emit_transactions_from_resumable_wal_window(
+        state.connector_config,
+        state.client_id,
+        client_lsn,
+        cached_lsn,
+        send_events_fn
+      )
+
+    with {:ok, _tx_count} <- result do
       {:ok, state}
     end
   end
