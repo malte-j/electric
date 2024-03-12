@@ -1,5 +1,11 @@
 # @core/electric
 
+## 0.9.4
+
+### Patch Changes
+
+- 209192a3: [VAX-1664] Fix for prisma database introspection
+
 ## 0.9.3
 
 ### Patch Changes
