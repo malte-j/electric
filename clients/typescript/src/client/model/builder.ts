@@ -16,6 +16,7 @@ import Log from 'loglevel'
 import { ExtendedTableSchema } from './schema'
 import { PgBasicType } from '../conversions/types'
 import { HKT } from '../util/hkt'
+import { Dialect } from '../../migrators/query-builder/builder'
 
 const squelPostgres = squel.useFlavour('postgres')
 squelPostgres.registerValueHandler('bigint', function (bigint) {
@@ -40,8 +41,22 @@ export class Builder {
       any,
       any,
       HKT
-    >
-  ) {}
+    >,
+    public dialect: Dialect
+  ) {
+    if (dialect === 'Postgres') {
+      squelPostgres.cls.DefaultQueryBuilderOptions.nameQuoteCharacter = '"'
+      squelPostgres.cls.DefaultQueryBuilderOptions.autoQuoteTableNames = true
+      squelPostgres.cls.DefaultQueryBuilderOptions.autoQuoteFieldNames = true
+      squelPostgres.cls.DefaultQueryBuilderOptions.autoQuoteAliasNames = true
+      // need to register it, otherwise squel complains that the Date type is not registered
+      // as Squel does not support it out-of-the-box but our Postgres drivers do support it.
+      squelPostgres.registerValueHandler(Date, (date) => date)
+    } else {
+      // Don't use numbered parameters if dialect is SQLite
+      squelPostgres.cls.DefaultQueryBuilderOptions.numberedParameters = false
+    }
+  }
 
   create(i: CreateInput<any, any, any>): QueryBuilder {
     // Make a SQL query out of the data
@@ -228,7 +243,7 @@ export class Builder {
    */
   private castBigIntToText(field: string) {
     const pgType = this._tableDescription.fields.get(field)
-    if (pgType === PgBasicType.PG_INT8) {
+    if (pgType === PgBasicType.PG_INT8 && this.dialect === 'SQLite') {
       return `cast(${field} as TEXT) AS ${field}`
     }
     return field
@@ -281,8 +296,25 @@ export class Builder {
       // because not all adapters deal well with BigInts
       // the DAL will convert the string into a BigInt in the `fromSqlite` function from `../conversions/sqlite.ts`.
       const pgType = this._tableDescription.fields.get(field)
-      if (pgType === PgBasicType.PG_INT8) {
-        return query.returning(`cast(${field} as TEXT) AS ${field}`)
+      if (pgType === PgBasicType.PG_INT8 && this.dialect === 'SQLite') {
+        //squelPostgres.function('cast(?)', `"${field}" as TEXT`)
+        // FIXME: squel adds quotes around the entire cast...
+        //        tried to override squel's internal _formatFieldName to special case this field but it still quoted it
+        const f = `cast("${field}" as TEXT) AS "${field}"`
+        const res = query.returning(f) //, field)
+        /*
+        const returningBlock = query.blocks[query.blocks.length - 1]
+        const originalFormatter = returningBlock._formatFieldName.bind(returningBlock)
+        returningBlock._formatFieldName = (field, opts) => {
+          console.log(`formatting field name: ${field}`)
+          if (field === f) {
+            console.log(`returning field: ${field}`)
+            return field
+          }
+          else return originalFormatter(field, opts)
+        }
+        */
+        return res
       }
       return query.returning(field)
     }, query)
@@ -317,7 +349,7 @@ function makeFilter(
   if (fieldValue === null) return [{ sql: `${fieldName} IS NULL` }]
   else if (fieldName === 'AND' || fieldName === 'OR' || fieldName === 'NOT') {
     return [makeBooleanFilter(fieldName as 'AND' | 'OR' | 'NOT', fieldValue)]
-  } else if (typeof fieldValue === 'object') {
+  } else if (typeof fieldValue === 'object' && !(fieldValue instanceof Date)) {
     // an object containing filters is provided
     // e.g. users.findMany({ where: { id: { in: [1, 2, 3] } } })
     const fs = {
