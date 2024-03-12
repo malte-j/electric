@@ -24,16 +24,11 @@ importers:
         specifier: '>= 2.0.16'
         version: 2.0.20(react-native@0.68.0)(react@18.2.0)
       '@prisma/client':
-<<<<<<< HEAD
         specifier: 4.8.1
         version: 4.8.1(prisma@4.8.1)
-=======
-        specifier: 5.2.0
-        version: 5.2.0(prisma@5.2.0)
       '@tauri-apps/api':
         specifier: ^1.5.3
         version: 1.5.3
->>>>>>> 8e226307 (Driver for Node Postgres and Tauri Postgres.)
       async-mutex:
         specifier: ^0.4.0
         version: 0.4.0
@@ -237,7 +232,7 @@ importers:
         specifier: ^8.22.0
         version: 8.41.0
       expo-sqlite:
-        specifier: ^13.0.0
+        specifier: ^13.1.0
         version: 13.2.2(expo@48.0.19)
       glob:
         specifier: ^10.3.10
@@ -2883,64 +2878,72 @@ packages:
     engines: {node: '>=0.1.90'}
     dev: false
 
-  /@embedded-postgres/darwin-arm64@16.1.1-beta.9:
-    resolution: {integrity: sha512-rYhWpszHXWMykAob3SLiVtzQdAfN0WQT+16dUHxxGIgoT6W435Do7DKDE4+Sg6I/U4dj0d/SUXevwi9svmiH9w==}
+  /@embedded-postgres/darwin-arm64@16.1.1-beta.11:
+    resolution: {integrity: sha512-/O12CSVZygoeA+LamdN4vlmPxVzXkwQ6GRVkAXN3oog2Oj5HEeAEvMzPojlMlAtSQW2av9mvjmssIRlBhFSgqQ==}
+    engines: {node: '>=16'}
     cpu: [arm64]
     os: [darwin]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/darwin-x64@16.1.1-beta.9:
-    resolution: {integrity: sha512-ny/EtURgyWcEy9rDZuTDDhgx+Fv26QdBPsR3GmRPPNh9QJWRd/77yNJ34V41WO8ORiWZpAx7j5PfqcfaFZx1bQ==}
+  /@embedded-postgres/darwin-x64@16.1.1-beta.11:
+    resolution: {integrity: sha512-PUB51kAxlDDvzx4nmiY9Uu2YAICrLadI1CsCGePs2Kv+wNF5JlpfWpWsyPCyo/pVQQ+c+Jbq9uy98Z3cAgBfzA==}
+    engines: {node: '>=16'}
     cpu: [x64]
     os: [darwin]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/linux-arm64@16.1.1-beta.9:
-    resolution: {integrity: sha512-5TjdNJh3jgKlHyQrGDv9Ea7FGyT57DirfOAhA+TOu+n+97uAUwjOv/HgbHaqneAqNGJf0QazOTTHBDQhAVrslQ==}
+  /@embedded-postgres/linux-arm64@16.1.1-beta.11:
+    resolution: {integrity: sha512-AaGOTznBc7f2fcU2QLGJ09qAcuj9/V8mUIdpi4kgur7PsGafVa+nOHZMVTUEJW59M0z4NnsrAAqxlr5ZpDPsXw==}
+    engines: {node: '>=16'}
     cpu: [arm64]
     os: [linux]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/linux-arm@16.1.1-beta.9:
-    resolution: {integrity: sha512-hpZ169WLsawrk0WZ3antzxy14jx75aNyTVwEctxtE9Si+AxrOFhEV2XivI40H3XtpJRAVRLxzWujJEpEq9mkrg==}
+  /@embedded-postgres/linux-arm@16.1.1-beta.11:
+    resolution: {integrity: sha512-jEst5b9I0sHyAQhCn8Z2MCjj8EK18X3PqVj7miEt7gjYvSPuprrdNkzIEaAR111e0gYtMONQbOqpECcfGLHm6w==}
+    engines: {node: '>=16'}
     cpu: [arm]
     os: [linux]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/linux-ia32@16.1.1-beta.9:
-    resolution: {integrity: sha512-BUJsM34OpLeuwc1GUa8mg5/n5f2Sdu++Cq40vc7hngbTdebwzcQ5kjWaXG+dt+Xxm9/biV/5r0NMgBHQcsdqvA==}
+  /@embedded-postgres/linux-ia32@16.1.1-beta.11:
+    resolution: {integrity: sha512-e37tdnp/MOuYYPIkqUD91KJYJXDM1n30drm01FAekrwdCGhGNQ2B12zdrGQLHvkpBYprEplTTSNHi9BLBcg7tA==}
+    engines: {node: '>=16'}
     cpu: [ia32]
     os: [linux]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/linux-ppc64@16.1.1-beta.9:
-    resolution: {integrity: sha512-25VffF0/MDHcOMo2UCEgW+lz9CGYCn4SxDeJUp/IF0P1rbO3so4ldfr+fbnkghWthPebjcH9gTskT3iP6saSaw==}
+  /@embedded-postgres/linux-ppc64@16.1.1-beta.11:
+    resolution: {integrity: sha512-qlYegCvFfT3/vBDAHvwNY+XIVkTvzoknM+zKpI9SzbHpZHiIjQoRMx536gcKdZj81n83CWpHlTth63r26bARwQ==}
+    engines: {node: '>=16'}
     cpu: [ppc64]
     os: [linux]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/linux-x64@16.1.1-beta.9:
-    resolution: {integrity: sha512-DWyCp01oXjIHUhhfYRUwgPav0bNnjbJqaYVNyWdIj0g/Uo80gUQx8UryvsYl8ZsVtHB4YNuFhJ1CRDdthkVW5w==}
+  /@embedded-postgres/linux-x64@16.1.1-beta.11:
+    resolution: {integrity: sha512-co6zRgE2ctWf+xmfLqurumwzEfzQFeIoLyt8iB3jk8Z5O+bacJ7n/o5q8NyO1xJQixuZuyyBVY2boK14fCtlQQ==}
+    engines: {node: '>=16'}
     cpu: [x64]
     os: [linux]
     requiresBuild: true
     dev: true
     optional: true
 
-  /@embedded-postgres/windows-x64@16.1.1-beta.9:
-    resolution: {integrity: sha512-1/1Cf1zL0NPTmIJjpeHXYPWJQLDa+pG27H8j/VEQIN8BVqRMJKXMSqlXw3RdKT7bWDDY2YkNKhfgsGjWY+yxnw==}
+  /@embedded-postgres/windows-x64@16.1.1-beta.11:
+    resolution: {integrity: sha512-Yc7YcWG3hthWCtg1wvXmnPJQ29sHFwk/Bnk5P8sArlx3nEiksSmO43Tb7DbaRqn9ELP8cUSUXrkWXWuLq3cPpA==}
+    engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
     requiresBuild: true
@@ -4215,7 +4218,7 @@ packages:
     dependencies:
       '@types/istanbul-lib-coverage': 2.0.4
       '@types/istanbul-reports': 3.0.1
-      '@types/node': 16.18.34
+      '@types/node': 18.16.16
       '@types/yargs': 16.0.5
       chalk: 4.1.2
     dev: false
@@ -5008,7 +5011,11 @@ packages:
       defer-to-connect: 2.0.1
     dev: true
 
-<<<<<<< HEAD
+  /@tauri-apps/api@1.5.3:
+    resolution: {integrity: sha512-zxnDjHHKjOsrIzZm6nO5Xapb/BxqUq1tc7cGkFXsFkGTsSWgCPH1D8mm0XS9weJY2OaR73I3k3S+b7eSzJDfqA==}
+    engines: {node: '>= 14.6.0', npm: '>= 6.6.0', yarn: '>= 1.19.1'}
+    dev: false
+
   /@tauri-apps/api@2.0.0-alpha.13:
     resolution: {integrity: sha512-sGgCkFahF3OZAHoGN5Ozt9WK7wJlbVZSgWpPQKNag4nSOX1+Py6VDRTEWriiJHDiV+gg31CWHnNXRy6TFoZmdA==}
     engines: {node: '>= 18', npm: '>= 6.6.0', yarn: '>= 1.19.1'}
@@ -5019,12 +5026,6 @@ packages:
     dependencies:
       '@tauri-apps/api': 2.0.0-alpha.13
     dev: true
-=======
-  /@tauri-apps/api@1.5.3:
-    resolution: {integrity: sha512-zxnDjHHKjOsrIzZm6nO5Xapb/BxqUq1tc7cGkFXsFkGTsSWgCPH1D8mm0XS9weJY2OaR73I3k3S+b7eSzJDfqA==}
-    engines: {node: '>= 14.6.0', npm: '>= 6.6.0', yarn: '>= 1.19.1'}
-    dev: false
->>>>>>> 8e226307 (Driver for Node Postgres and Tauri Postgres.)
 
   /@testing-library/dom@8.20.0:
     resolution: {integrity: sha512-d9ULIT+a4EXLX3UU8FBjauG9NnsZHkHztXoIcTsOKoOw030fyjheN9svkTULjJxtYag9DZz5Jz5qkWZDPxTFwA==}
@@ -5119,11 +5120,7 @@ packages:
   /@types/cross-spawn@6.0.2:
     resolution: {integrity: sha512-KuwNhp3eza+Rhu8IFI5HUXRP0LIhqH5cAjubUvGXXthh4YYBuP2ntwEX+Cz8GJoZUHlKo247wPWOfA9LYEq4cw==}
     dependencies:
-<<<<<<< HEAD
-      '@types/node': 20.11.19
-=======
       '@types/node': 18.16.16
->>>>>>> 8e226307 (Driver for Node Postgres and Tauri Postgres.)
 
   /@types/debug@4.1.8:
     resolution: {integrity: sha512-/vPO1EPOs306Cvhwv7KfVfYvOJqA/S/AXjaHQiJboCZzcNDb+TIJFN9/2C9DZ//ijSKWioNyUxD792QmDJ+HKQ==}
@@ -5263,6 +5260,7 @@ packages:
 
   /@types/node@16.18.34:
     resolution: {integrity: sha512-VmVm7gXwhkUimRfBwVI1CHhwp86jDWR04B5FGebMMyxV90SlCmFujwUHrxTD4oO+SOYU86SoxvhgeRQJY7iXFg==}
+    dev: true
 
   /@types/node@18.16.16:
     resolution: {integrity: sha512-NpaM49IGQQAUlBhHMF82QH80J08os4ZmyF9MkpCzWAGuOHqE4gTEbhzd7L3l5LmWuZ6E0OiC1FweQ4tsiW35+g==}
@@ -5271,6 +5269,7 @@ packages:
     resolution: {integrity: sha512-7xMnVEcZFu0DikYjWOlRq7NTPETrm7teqUT2WkQjrTIkEgUyyGdWsj/Zg8bEJt5TNklzbPD1X3fqfsHw3SpapQ==}
     dependencies:
       undici-types: 5.26.5
+    dev: false
 
   /@types/normalize-package-data@2.4.1:
     resolution: {integrity: sha512-Gj7cI7z+98M282Tqmp2K5EIsoouUEzbBJhQQzDE3jSIRk6r9gsz0oUokqIUR4u1R3dMHo0pDHM7sNOHyhulypw==}
@@ -7937,14 +7936,14 @@ packages:
       async-exit-hook: 2.0.1
       pg: 8.11.3
     optionalDependencies:
-      '@embedded-postgres/darwin-arm64': 16.1.1-beta.9
-      '@embedded-postgres/darwin-x64': 16.1.1-beta.9
-      '@embedded-postgres/linux-arm': 16.1.1-beta.9
-      '@embedded-postgres/linux-arm64': 16.1.1-beta.9
-      '@embedded-postgres/linux-ia32': 16.1.1-beta.9
-      '@embedded-postgres/linux-ppc64': 16.1.1-beta.9
-      '@embedded-postgres/linux-x64': 16.1.1-beta.9
-      '@embedded-postgres/windows-x64': 16.1.1-beta.9
+      '@embedded-postgres/darwin-arm64': 16.1.1-beta.11
+      '@embedded-postgres/darwin-x64': 16.1.1-beta.11
+      '@embedded-postgres/linux-arm': 16.1.1-beta.11
+      '@embedded-postgres/linux-arm64': 16.1.1-beta.11
+      '@embedded-postgres/linux-ia32': 16.1.1-beta.11
+      '@embedded-postgres/linux-ppc64': 16.1.1-beta.11
+      '@embedded-postgres/linux-x64': 16.1.1-beta.11
+      '@embedded-postgres/windows-x64': 16.1.1-beta.11
     transitivePeerDependencies:
       - pg-native
     dev: true
@@ -13225,12 +13224,6 @@ packages:
     resolution: {integrity: sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg==}
     dev: false
 
-<<<<<<< HEAD
-=======
-  /performance-now@2.1.0:
-    resolution: {integrity: sha512-7EAHlyLHI56VEIdK57uwHdHKIaAGbnXPiw0yWbarQZOKaKpvUIgW0jWRVLiatnM+XXlSwsanIBH/hzGMJulMow==}
-    dev: true
-
   /pg-cloudflare@1.1.1:
     resolution: {integrity: sha512-xWPagP/4B6BgFO+EKz3JONXv3YDgvkbVrGw2mTo3D6tVDQRh1e7cqVGvyR3BE+eQgAvx1XhW/iEASj4/jCWl3Q==}
     requiresBuild: true
@@ -13313,7 +13306,6 @@ packages:
       split2: 4.2.0
     dev: true
 
->>>>>>> 8e226307 (Driver for Node Postgres and Tauri Postgres.)
   /picocolors@1.0.0:
     resolution: {integrity: sha512-1fygroTLlHu66zi26VoTDv8yRgm0Fccecssto+MhsZ0D/DGW2sm8E8AjW7NU5VVTRt5GxbeZ5qBuJr+HyLYkjQ==}
 
@@ -13480,7 +13472,6 @@ packages:
       source-map-js: 1.0.2
     dev: true
 
-<<<<<<< HEAD
   /postcss@8.4.35:
     resolution: {integrity: sha512-u5U8qYpBCpN13BsiEB0CbR1Hhh4Gc0zLFuedrHJKMctHCHAGrMdG0PRM/KErzAL3CU6/eckEtmHNB3x6e3c0vA==}
     engines: {node: ^10 || ^12 || >=14}
@@ -13488,7 +13479,8 @@ packages:
       nanoid: 3.3.7
       picocolors: 1.0.0
       source-map-js: 1.0.2
-=======
+    dev: true
+
   /postgres-array@2.0.0:
     resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
     engines: {node: '>=4'}
@@ -13535,7 +13527,6 @@ packages:
 
   /postgres-range@1.1.4:
     resolution: {integrity: sha512-i/hbxIE9803Alj/6ytL7UHQxRvZkI9O4Sy+J3HGc4F4oo/2eQAjTSNJ0bfxyse3bH0nuVesCk+3IRLaMtG3H6w==}
->>>>>>> 8e226307 (Driver for Node Postgres and Tauri Postgres.)
     dev: true
 
   /pouchdb-collections@1.0.1:
@@ -15960,6 +15951,7 @@ packages:
 
   /undici-types@5.26.5:
     resolution: {integrity: sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==}
+    dev: false
 
   /unicode-canonical-property-names-ecmascript@2.0.0:
     resolution: {integrity: sha512-yY5PpDlfVIU5+y/BSCxAJRBIS1Zc2dDG3Ujq+sR0U+JjUevW2JhocOF+soROYDSaAezOzOKuyyixhD6mBknSmQ==}
